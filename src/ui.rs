@@ -221,4 +221,77 @@ mod tests {
         assert!(app.last_log_viewport_size.0 > 0);
         assert!(app.last_log_viewport_size.1 > 0);
     }
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        }
+    }
+
+    #[test]
+    fn test_fallback_slice_safety_with_utf8_ansi() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new("cmd".into(), 100);
+        app.on_key(key(KeyCode::Char('z'))); // hide sidebar
+        
+        // Test slicing fallback safety
+        app.on_line("\x1b[31m[proc-1] café\x1b[0m");
+
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        assert!(app.last_log_viewport_size.1 > 0);
+    }
+
+    #[test]
+    fn test_status_bar_exit_codes() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new("cmd".into(), 100);
+        
+        app.on_child_exited(ExitOutcome::Code(0));
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("EXITED (0)"));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let mut app = App::new("cmd".into(), 100);
+        app.on_child_exited(ExitOutcome::Code(-9));
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("CRASHED (-9)"));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let mut app = App::new("cmd".into(), 100);
+        app.on_child_exited(ExitOutcome::Signal(2));
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("CRASHED (sig 2)"));
+    }
+
+    #[test]
+    fn test_invalid_regex_highlight() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new("cmd".into(), 100);
+        
+        app.on_key(key(KeyCode::Char('/')));
+        for c in "[unclosed".chars() {
+            app.on_key(key(KeyCode::Char(c)));
+        }
+
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        
+        let bottom_y = 19;
+        let line = (0..100).map(|x| buffer.cell((x, bottom_y)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("/[unclosed"));
+        assert!(line.contains("Invalid Regex"));
+        assert_eq!(buffer.cell((0, bottom_y)).unwrap().fg, ratatui::style::Color::Yellow);
+    }
+
 }

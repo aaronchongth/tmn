@@ -429,4 +429,33 @@ mod tests {
         assert!(app.follow_tail);
         assert_eq!(app.anchor_seq, None);
     }
+
+    #[test]
+    fn scroll_down_clamps_and_reengages_follow_tail() {
+        let mut app = App::new("cmd".into(), 10);
+        for i in 0..10 {
+            app.on_line(&format!("L{}", i));
+        }
+        app.last_log_viewport_size = (80, 5);
+        
+        app.follow_tail = false;
+        app.anchor_seq = Some(3);
+        
+        app.scroll_down(100);
+        
+        assert!(app.follow_tail);
+        assert_eq!(app.anchor_seq, None);
+
+        app.follow_tail = false;
+        app.anchor_seq = Some(3);
+        app.scroll_down(2);
+        assert!(app.follow_tail);
+        assert_eq!(app.anchor_seq, None);
+        
+        app.follow_tail = false;
+        app.anchor_seq = Some(3);
+        app.scroll_down(1);
+        assert!(!app.follow_tail);
+        assert_eq!(app.anchor_seq, Some(4));
+    }
 }
