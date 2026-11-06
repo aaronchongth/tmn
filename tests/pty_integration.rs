@@ -178,8 +178,7 @@ fn quitting_escalates_to_sigkill_when_child_ignores_sigint() {
     // Check ESRCH (no orphan)
     use nix::sys::signal::kill;
     use nix::unistd::Pid;
-    use nix::sys::signal::Signal;
-    let err = kill(Pid::from_raw(session.child_pid()), Signal::SIGKILL).unwrap_err();
+    let err = kill(Pid::from_raw(session.child_pid()), None).unwrap_err();
     assert_eq!(err, nix::errno::Errno::ESRCH);
 }
 

@@ -37,7 +37,7 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
     loop {
         if flag.swap(false, std::sync::atomic::Ordering::Relaxed) {
             let action = app.request_external_shutdown();
-            handle_action(&session, action, &mut last_quit_escalation);
+            if handle_action(&session, action, &mut last_quit_escalation) { break; }
         }
 
         while let Ok(event) = rx.try_recv() {
@@ -47,43 +47,67 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
                 }
                 PtyEvent::Exited(outcome) => {
                     let action = app.on_child_exited(outcome);
-                    handle_action(&session, action, &mut last_quit_escalation);
+                    if handle_action(&session, action, &mut last_quit_escalation) { break; }
                 }
             }
         }
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if crossterm::event::poll(timeout).unwrap_or(false) {
-            if let Ok(crossterm::event::Event::Key(key)) = crossterm::event::read() {
-                let action = app.on_key(key);
-                handle_action(&session, action, &mut last_quit_escalation);
-            } else if let Ok(crossterm::event::Event::Resize(c, r)) = crossterm::event::read() {
-                cols = c;
-                rows = r;
-                session.resize(cols, rows);
+            #[allow(clippy::collapsible_if)]
+            if let Ok(event) = crossterm::event::read() {
+                match event {
+                    crossterm::event::Event::Key(key) => {
+                        if key.kind == crossterm::event::KeyEventKind::Press {
+                            let action = app.on_key(key);
+                            if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                        }
+                    }
+                    crossterm::event::Event::Resize(c, r) => {
+                        cols = c;
+                        rows = r;
+                        session.resize(cols, rows);
+                    }
+                    _ => {}
+                }
             }
         }
 
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
-            let action = app.on_quit_timeout();
-            handle_action(&session, action, &mut last_quit_escalation);
+            
+            match app.child_state() {
+                tmn::app::ChildState::Quitting { stage: tmn::app::QuitStage::IntSent } => {
+                    if last_quit_escalation.elapsed() >= Duration::from_secs(5) {
+                        let action = app.on_quit_timeout();
+                        if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                    }
+                }
+                tmn::app::ChildState::Quitting { stage: tmn::app::QuitStage::TermSent } => {
+                    if last_quit_escalation.elapsed() >= Duration::from_secs(2) {
+                        let action = app.on_quit_timeout();
+                        if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                    }
+                }
+                _ => {}
+            }
             
             let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
         }
     }
+    
+    0
 }
 
-fn handle_action(session: &PtySession, action: AppAction, last_escalation: &mut Instant) {
+fn handle_action(session: &PtySession, action: AppAction, last_escalation: &mut Instant) -> bool {
     match action {
-        AppAction::None => {}
+        AppAction::None => false,
         AppAction::SignalChild(req) => {
             session.send_signal(req);
             *last_escalation = Instant::now();
+            false
         }
-        AppAction::ExitTui => {
-            std::process::exit(0);
-        }
+        AppAction::ExitTui => true,
     }
 }
 
@@ -134,7 +158,7 @@ fn main() -> ExitCode {
                 
                 ExitCode::from((final_outcome.shell_exit_code() & 0xff) as u8)
             } else {
-                let app = App::new(String::new(), cli.max_lines);
+                let app = App::new(config.command.join(" "), cli.max_lines);
                 let code = run_interactive(app, config);
                 ExitCode::from(code as u8)
             }

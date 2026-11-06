@@ -3,9 +3,9 @@ use nix::pty::{openpty, Winsize};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{Pid, read};
 use std::os::fd::AsFd;
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::AsRawFd;
 use std::os::unix::process::ExitStatusExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
@@ -77,7 +77,7 @@ pub struct PtyConfig {
 
 pub struct PtySession {
     child_pid: i32,
-    master_fd: i32,
+    master: std::os::unix::io::OwnedFd,
 }
 
 impl PtySession {
@@ -107,9 +107,9 @@ impl PtySession {
             cmd.args(&config.command[1..]);
         }
 
-        cmd.stdin(std::process::Stdio::from(slave.try_clone().unwrap()));
-        cmd.stdout(std::process::Stdio::from(slave.try_clone().unwrap()));
-        cmd.stderr(std::process::Stdio::from(slave.try_clone().unwrap()));
+        cmd.stdin(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
+        cmd.stdout(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
+        cmd.stderr(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
 
         if config.inject_default_env {
             let defaults = [
@@ -128,8 +128,12 @@ impl PtySession {
         unsafe {
             use std::os::unix::process::CommandExt;
             cmd.pre_exec(|| {
-                nix::libc::setsid();
-                nix::libc::ioctl(0, nix::libc::TIOCSCTTY as _, 0);
+                if nix::libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if nix::libc::ioctl(0, nix::libc::TIOCSCTTY as _, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
@@ -142,15 +146,14 @@ impl PtySession {
         let reader_done = Arc::new((Mutex::new(false), Condvar::new()));
         let reader_done_clone = Arc::clone(&reader_done);
 
-        let master_fd = master.as_raw_fd();
-        let master_owned = master;
+        let master_for_reader = master.try_clone().map_err(|e| format!("Failed to clone master fd: {e}"))?;
         let tx_reader = tx.clone();
         
         thread::spawn(move || {
             let mut splitter = ByteLineSplitter::new();
             let mut buf = [0u8; 4096];
             loop {
-                match read(master_owned.as_fd(), &mut buf) {
+                match read(master_for_reader.as_fd(), &mut buf) {
                     Ok(0) | Err(nix::errno::Errno::EIO) => {
                         if let Some(last_line) = splitter.finish() {
                             let _ = tx_reader.send(PtyEvent::Line(last_line));
@@ -174,7 +177,7 @@ impl PtySession {
                 }
             }
             
-            drop(master_owned);
+            drop(master_for_reader);
             let (lock, cvar) = &*reader_done_clone;
             if let Ok(mut done) = lock.lock() {
                 *done = true;
@@ -209,7 +212,7 @@ impl PtySession {
 
         Ok(PtySession {
             child_pid,
-            master_fd,
+            master,
         })
     }
 
@@ -230,7 +233,7 @@ impl PtySession {
             ws_ypixel: 0,
         };
         unsafe {
-            nix::libc::ioctl(self.master_fd, nix::libc::TIOCSWINSZ as _, &winsize);
+            nix::libc::ioctl(self.master.as_raw_fd(), nix::libc::TIOCSWINSZ as _, &winsize);
         }
     }
 }
