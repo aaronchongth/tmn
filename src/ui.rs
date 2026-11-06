@@ -174,19 +174,36 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
 
     frame.render_widget(Paragraph::new(log_lines), log_area);
 
-    let state_str = match app.child_state() {
-        ChildState::Running => "RUNNING".to_string(),
-        ChildState::Stopping { .. } => "STOPPING...".to_string(),
-        ChildState::Quitting { .. } => "QUITTING...".to_string(),
-        ChildState::Exited(ExitOutcome::Code(0)) => "EXITED (0)".to_string(),
-        ChildState::Exited(ExitOutcome::Code(c)) => format!("CRASHED ({})", c),
-        ChildState::Exited(ExitOutcome::Signal(s)) => format!("CRASHED (sig {})", s),
+    let (state_text, state_color) = match app.child_state() {
+        ChildState::Running => ("RUNNING".to_string(), Color::Green),
+        ChildState::Stopping { .. } => ("STOPPING...".to_string(), Color::Yellow),
+        ChildState::Quitting { .. } => ("QUITTING...".to_string(), Color::Yellow),
+        ChildState::Exited(ExitOutcome::Code(0)) => ("EXITED (0)".to_string(), Color::DarkGray),
+        ChildState::Exited(ExitOutcome::Code(c)) => (format!("CRASHED ({})", c), Color::Red),
+        ChildState::Exited(ExitOutcome::Signal(s)) => (format!("CRASHED (sig {})", s), Color::Red),
     };
+
+    let mut top_spans = Vec::new();
+    if !app.cmd_name().is_empty() {
+        top_spans.push(Span::styled(
+            format!("{} | ", app.cmd_name()),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
+    }
+    top_spans.push(Span::styled(
+        state_text,
+        Style::default().fg(state_color).add_modifier(Modifier::BOLD),
+    ));
+
     let paused_str = if app.follow_tail() { "" } else { " [PAUSED — press G to follow]" };
     let sev_str = app.filter().min_severity().map(|s| s.as_str()).unwrap_or("ALL");
     let regex_str = if app.filter().query_text().is_empty() { "" } else { " REGEX" };
-    let top_str = format!("{} | Sev: {}{} | {}/{} {}", state_str, sev_str, regex_str, filtered_indices.len(), entries.len(), paused_str);
-    frame.render_widget(Paragraph::new(top_str).style(Style::default().add_modifier(Modifier::BOLD)), top_area);
+    top_spans.push(Span::styled(
+        format!(" | Sev: {}{} | {}/{} {}", sev_str, regex_str, filtered_indices.len(), entries.len(), paused_str),
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+
+    frame.render_widget(Paragraph::new(Line::from(top_spans)), top_area);
 
     let bottom_str = if app.is_searching {
         if let Some(err) = app.filter().regex_error() {
@@ -251,26 +268,48 @@ mod tests {
     fn test_status_bar_exit_codes() {
         let backend = TestBackend::new(100, 20);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new("cmd".into(), 100);
-        
+        let mut app = App::new("ros2 launch test".into(), 100);
+
+        // 1. RUNNING (default, Green)
+        terminal.draw(|f| render(f, &mut app)).unwrap();
+        let buf = terminal.backend().buffer();
+        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("ros2 launch test"));
+        assert!(line.contains("RUNNING"));
+        let run_idx = line.find("RUNNING").unwrap();
+        assert_eq!(buf.cell((run_idx as u16, 0)).unwrap().fg, Color::Green);
+
+        // 2. EXITED (0) (DarkGray)
         app.on_child_exited(ExitOutcome::Code(0));
         terminal.draw(|f| render(f, &mut app)).unwrap();
-        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let buf = terminal.backend().buffer();
+        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        assert!(line.contains("ros2 launch test"));
         assert!(line.contains("EXITED (0)"));
+        let exit_idx = line.find("EXITED (0)").unwrap();
+        assert_eq!(buf.cell((exit_idx as u16, 0)).unwrap().fg, Color::DarkGray);
 
+        // 3. CRASHED (code) (Red)
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        let mut app = App::new("cmd".into(), 100);
+        let mut app = App::new("ros2 launch test".into(), 100);
         app.on_child_exited(ExitOutcome::Code(-9));
         terminal.draw(|f| render(f, &mut app)).unwrap();
-        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let buf = terminal.backend().buffer();
+        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
         assert!(line.contains("CRASHED (-9)"));
+        let crash_idx = line.find("CRASHED (-9)").unwrap();
+        assert_eq!(buf.cell((crash_idx as u16, 0)).unwrap().fg, Color::Red);
 
+        // 4. CRASHED (signal) (Red)
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        let mut app = App::new("cmd".into(), 100);
+        let mut app = App::new("ros2 launch test".into(), 100);
         app.on_child_exited(ExitOutcome::Signal(2));
         terminal.draw(|f| render(f, &mut app)).unwrap();
-        let line = (0..100).map(|x| terminal.backend().buffer().cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let buf = terminal.backend().buffer();
+        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
         assert!(line.contains("CRASHED (sig 2)"));
+        let sig_idx = line.find("CRASHED (sig 2)").unwrap();
+        assert_eq!(buf.cell((sig_idx as u16, 0)).unwrap().fg, Color::Red);
     }
 
     #[test]

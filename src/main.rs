@@ -23,8 +23,13 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
         }
     };
 
-    let (mut cols, mut rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    session.resize(cols, rows);
+    let mut last_pty_size = (0u16, 0u16);
+    let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
+    let vp = app.last_log_viewport_size();
+    if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
+        session.resize(vp.0, vp.1);
+        last_pty_size = vp;
+    }
 
     let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _ = signal_hook::flag::register(signal_hook::consts::SIGTERM, std::sync::Arc::clone(&flag));
@@ -61,12 +66,21 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
                         if key.kind == crossterm::event::KeyEventKind::Press {
                             let action = app.on_key(key);
                             if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                            let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
+                            let vp = app.last_log_viewport_size();
+                            if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
+                                session.resize(vp.0, vp.1);
+                                last_pty_size = vp;
+                            }
                         }
                     }
-                    crossterm::event::Event::Resize(c, r) => {
-                        cols = c;
-                        rows = r;
-                        session.resize(cols, rows);
+                    crossterm::event::Event::Resize(_c, _r) => {
+                        let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
+                        let vp = app.last_log_viewport_size();
+                        if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
+                            session.resize(vp.0, vp.1);
+                            last_pty_size = vp;
+                        }
                     }
                     _ => {}
                 }
@@ -93,6 +107,11 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
             }
             
             let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
+            let vp = app.last_log_viewport_size();
+            if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
+                session.resize(vp.0, vp.1);
+                last_pty_size = vp;
+            }
         }
     }
     
@@ -114,11 +133,17 @@ fn handle_action(session: &PtySession, action: AppAction, last_escalation: &mut 
 fn main() -> ExitCode {
     match tmn::cli::parse_args(std::env::args_os()) {
         Ok(tmn::cli::CliOutcome::Run(cli)) => {
+            let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+            let (init_cols, init_rows) = if cli.headless {
+                (cols, rows)
+            } else {
+                (cols.saturating_sub(28).max(1), rows.saturating_sub(2).max(1))
+            };
             let config = PtyConfig {
                 command: cli.command,
                 inject_default_env: !cli.no_env_override,
-                cols: 80, // will be updated via resize in interactive mode
-                rows: 24,
+                cols: init_cols,
+                rows: init_rows,
             };
 
             if cli.headless {

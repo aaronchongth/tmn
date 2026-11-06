@@ -48,6 +48,7 @@ pub enum AppAction {
 }
 
 pub struct App {
+    cmd_name: String,
     store: LogStore,
     filter: FilterState,
     child_state: ChildState,
@@ -61,8 +62,9 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(_cmd_name: String, max_lines: usize) -> Self {
+    pub fn new(cmd_name: String, max_lines: usize) -> Self {
         Self {
+            cmd_name,
             store: LogStore::new(max_lines),
             filter: FilterState::new(),
             child_state: ChildState::Running,
@@ -75,6 +77,8 @@ impl App {
         }
     }
 
+    #[must_use]
+    pub fn cmd_name(&self) -> &str { &self.cmd_name }
     #[must_use]
     pub fn store(&self) -> &LogStore { &self.store }
     #[must_use]
@@ -457,5 +461,11 @@ mod tests {
         app.scroll_down(1);
         assert!(!app.follow_tail);
         assert_eq!(app.anchor_seq, Some(4));
+    }
+
+    #[test]
+    fn test_app_cmd_name() {
+        let app = App::new("ros2 launch my_pkg my.launch.py".into(), 100);
+        assert_eq!(app.cmd_name(), "ros2 launch my_pkg my.launch.py");
     }
 }

@@ -29,7 +29,7 @@ tmn [OPTIONS] [--] <COMMAND> [ARGS]...
 | `-V, --version` | — | Print `tmn <version>` and exit `0`. |
 
 ### Argument & Exit-Code Rules
-- `<COMMAND> [ARGS]...` uses trailing variable arguments (`trailing_var_arg = true`, `allow_hyphen_values = true`) so flags intended for `ros2 launch` (e.g., `tmn ros2 launch demo_nodes_cpp talker_listener.launch.py --ros-args ...`) pass through without requiring `--`, while `tmn -- ...` is also supported explicitly.
+- `<COMMAND> [ARGS]...` uses trailing variable arguments (`trailing_var_arg = true` without `allow_hyphen_values = true`) so unknown flags before `<COMMAND>` are rejected with exit code `2`, while flags after `<COMMAND>` (e.g., `tmn ros2 launch demo_nodes_cpp talker_listener.launch.py --ros-args ...`) pass through without requiring `--`; `tmn -- ...` is supported when `<COMMAND>` itself starts with `-`.
 - **No arguments (`tmn`):** Writes a concise 1-line description, usage synopsis, two examples, and `Run 'tmn --help' for all options.` to `stderr`, then exits with code `2`.
 - **Invalid flags / `--max-lines 0`:** Writes an actionable error message to `stderr` and exits with code `2`.
 - **Interactive mode exit codes:** `0` when the user quits cleanly (`q`); `1` if PTY allocation, child spawn, or terminal initialization fails.
