@@ -144,7 +144,7 @@ impl App {
             let current_anchor = self.anchor_seq.unwrap_or(0);
             let entries = self.store.entries();
             // Binary search: `entries` is sorted by seq. `filtered_indices` is also sorted.
-            indices.iter().position(|&v| entries[v].seq >= current_anchor).unwrap_or(0)
+            indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < current_anchor))
         };
         
         self.follow_tail = false;
@@ -160,11 +160,18 @@ impl App {
         
         let current_anchor = self.anchor_seq.unwrap_or(0);
         let entries = self.store.entries();
-        let top_idx = indices.iter().position(|&v| entries[v].seq >= current_anchor).unwrap_or(0);
+        let top_idx = indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < current_anchor));
         
-        let new_idx = std::cmp::min(top_idx + lines, indices.len().saturating_sub(1));
-        let actual = indices[new_idx];
-        self.anchor_seq = Some(entries[actual].seq);
+        let h = self.last_log_viewport_size.1 as usize;
+        let max_top = indices.len().saturating_sub(h.max(1));
+        let new_idx = std::cmp::min(top_idx + lines, max_top);
+        if new_idx >= max_top {
+            self.follow_tail = true;
+            self.anchor_seq = None;
+        } else {
+            let actual = indices[new_idx];
+            self.anchor_seq = Some(entries[actual].seq);
+        }
     }
 
     pub fn on_key(&mut self, key: KeyEvent) -> AppAction {

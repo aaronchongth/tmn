@@ -132,7 +132,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     } else {
         let anchor = app.anchor_seq.unwrap_or(0);
         let entries = app.store().entries();
-        filtered_indices.iter().position(|&v| entries[v].seq >= anchor).unwrap_or(0)
+        filtered_indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < anchor))
     };
     
     let visible_indices = &filtered_indices[top_idx..std::cmp::min(top_idx + h, filtered_indices.len())];
@@ -156,14 +156,17 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
                 } else {
                     Line::from(format!("{}{}", tag, entry.plain_text()))
                 }
-            } else if let Ok(mut text) = (&entry.raw_text().as_bytes()[entry.display_offset..]).into_text() {
-                if !text.lines.is_empty() {
-                    text.lines.remove(0)
-                } else {
-                    Line::from("")
-                }
             } else {
-                Line::from(&entry.plain_text()[entry.display_offset..])
+                let sliced_raw = entry.raw_text().get(entry.display_offset..).unwrap_or(entry.raw_text());
+                if let Ok(mut text) = sliced_raw.as_bytes().into_text() {
+                    if !text.lines.is_empty() {
+                        text.lines.remove(0)
+                    } else {
+                        Line::from("")
+                    }
+                } else {
+                    Line::from(crate::parser::strip_ansi(sliced_raw).into_owned())
+                }
             };
             log_lines.push(line);
         }
@@ -172,11 +175,12 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(Paragraph::new(log_lines), log_area);
 
     let state_str = match app.child_state() {
-        ChildState::Running => "RUNNING",
-        ChildState::Stopping { .. } => "STOPPING...",
-        ChildState::Quitting { .. } => "QUITTING...",
-        ChildState::Exited(ExitOutcome::Code(_)) => "EXITED",
-        ChildState::Exited(ExitOutcome::Signal(_)) => "CRASHED",
+        ChildState::Running => "RUNNING".to_string(),
+        ChildState::Stopping { .. } => "STOPPING...".to_string(),
+        ChildState::Quitting { .. } => "QUITTING...".to_string(),
+        ChildState::Exited(ExitOutcome::Code(0)) => "EXITED (0)".to_string(),
+        ChildState::Exited(ExitOutcome::Code(c)) => format!("CRASHED ({})", c),
+        ChildState::Exited(ExitOutcome::Signal(s)) => format!("CRASHED (sig {})", s),
     };
     let paused_str = if app.follow_tail() { "" } else { " [PAUSED — press G to follow]" };
     let sev_str = app.filter().min_severity().map(|s| s.as_str()).unwrap_or("ALL");
@@ -185,9 +189,16 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(Paragraph::new(top_str).style(Style::default().add_modifier(Modifier::BOLD)), top_area);
 
     let bottom_str = if app.is_searching {
-        format!("/{}", app.filter().query_text())
+        if let Some(err) = app.filter().regex_error() {
+            Line::from(vec![
+                Span::styled(format!("/{} ", app.filter().query_text()), Style::default().fg(Color::Yellow)),
+                Span::styled(format!("(Invalid Regex: {})", err), Style::default().fg(Color::Yellow)),
+            ])
+        } else {
+            Line::from(format!("/{}", app.filter().query_text()))
+        }
     } else {
-        "j/k: Navigate | Enter: Solo | Space: Multi | a: All | 1-5: Sev | /: Search | q: Quit".to_string()
+        Line::from("j/k: Navigate | Enter: Solo | Space: Multi | a: All | 1-5: Sev | /: Search | q: Quit")
     };
     frame.render_widget(Paragraph::new(bottom_str), bottom_area);
 }
