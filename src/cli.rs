@@ -1,5 +1,5 @@
-use std::ffi::OsString;
 use clap::Parser;
+use std::ffi::OsString;
 
 #[derive(Parser, Debug, Clone, PartialEq, Eq)]
 #[command(
@@ -28,10 +28,7 @@ pub struct Cli {
     pub headless: bool,
 
     /// Command and arguments to run.
-    #[arg(
-        value_name = "COMMAND",
-        trailing_var_arg = true
-    )]
+    #[arg(value_name = "COMMAND", trailing_var_arg = true)]
     pub command: Vec<String>,
 }
 
@@ -48,9 +45,7 @@ pub struct CliError {
 }
 
 fn parse_max_lines(val: &str) -> Result<usize, String> {
-    let n: usize = val
-        .parse()
-        .map_err(|_| format!("invalid integer: {val}"))?;
+    let n: usize = val.parse().map_err(|_| format!("invalid integer: {val}"))?;
     if n == 0 {
         return Err("max-lines must be greater than 0".to_string());
     }
@@ -170,7 +165,15 @@ mod tests {
     #[test]
     fn double_dash_separator_works() {
         let CliOutcome::Run(cli) = parse_args([
-            "tmn", "--headless", "-n", "500", "--no-env-override", "--", "ros2", "launch", "my_pkg",
+            "tmn",
+            "--headless",
+            "-n",
+            "500",
+            "--no-env-override",
+            "--",
+            "ros2",
+            "launch",
+            "my_pkg",
         ])
         .unwrap() else {
             panic!("expected Run")

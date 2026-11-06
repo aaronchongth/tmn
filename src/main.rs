@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tmn::app::{App, AppAction, ExitOutcome};
 use tmn::pty::{PtyConfig, PtyEvent, PtySession};
-use tmn::ui::{render, TerminalGuard};
+use tmn::ui::{TerminalGuard, render};
 
 fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
     let (tx, rx) = mpsc::channel();
@@ -42,7 +42,9 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
     loop {
         if flag.swap(false, std::sync::atomic::Ordering::Relaxed) {
             let action = app.request_external_shutdown();
-            if handle_action(&session, action, &mut last_quit_escalation) { break; }
+            if handle_action(&session, action, &mut last_quit_escalation) {
+                break;
+            }
         }
 
         while let Ok(event) = rx.try_recv() {
@@ -52,7 +54,9 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
                 }
                 PtyEvent::Exited(outcome) => {
                     let action = app.on_child_exited(outcome);
-                    if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                    if handle_action(&session, action, &mut last_quit_escalation) {
+                        break;
+                    }
                 }
             }
         }
@@ -65,7 +69,9 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
                     crossterm::event::Event::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {
                             let action = app.on_key(key);
-                            if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                            if handle_action(&session, action, &mut last_quit_escalation) {
+                                break;
+                            }
                             let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
                             let vp = app.last_log_viewport_size();
                             if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
@@ -89,23 +95,31 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
 
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
-            
+
             match app.child_state() {
-                tmn::app::ChildState::Quitting { stage: tmn::app::QuitStage::IntSent } => {
+                tmn::app::ChildState::Quitting {
+                    stage: tmn::app::QuitStage::IntSent,
+                } => {
                     if last_quit_escalation.elapsed() >= Duration::from_secs(5) {
                         let action = app.on_quit_timeout();
-                        if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                        if handle_action(&session, action, &mut last_quit_escalation) {
+                            break;
+                        }
                     }
                 }
-                tmn::app::ChildState::Quitting { stage: tmn::app::QuitStage::TermSent } => {
+                tmn::app::ChildState::Quitting {
+                    stage: tmn::app::QuitStage::TermSent,
+                } => {
                     if last_quit_escalation.elapsed() >= Duration::from_secs(2) {
                         let action = app.on_quit_timeout();
-                        if handle_action(&session, action, &mut last_quit_escalation) { break; }
+                        if handle_action(&session, action, &mut last_quit_escalation) {
+                            break;
+                        }
                     }
                 }
                 _ => {}
             }
-            
+
             let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
             let vp = app.last_log_viewport_size();
             if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
@@ -114,7 +128,7 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
             }
         }
     }
-    
+
     0
 }
 
@@ -137,7 +151,10 @@ fn main() -> ExitCode {
             let (init_cols, init_rows) = if cli.headless {
                 (cols, rows)
             } else {
-                (cols.saturating_sub(28).max(1), rows.saturating_sub(2).max(1))
+                (
+                    cols.saturating_sub(28).max(1),
+                    rows.saturating_sub(2).max(1),
+                )
             };
             let config = PtyConfig {
                 command: cli.command,
@@ -155,10 +172,10 @@ fn main() -> ExitCode {
                         return ExitCode::from(1);
                     }
                 };
-                
+
                 let mut store = tmn::store::LogStore::new(cli.max_lines);
                 let mut final_outcome = ExitOutcome::Code(1);
-                
+
                 while let Ok(event) = rx.recv() {
                     match event {
                         PtyEvent::Line(line) => {
@@ -171,7 +188,7 @@ fn main() -> ExitCode {
                         }
                     }
                 }
-                
+
                 // Print a per-source summary to stderr
                 let rows = store.source_rows();
                 eprintln!("\n--- Headless Summary ---");
@@ -180,7 +197,7 @@ fn main() -> ExitCode {
                         eprintln!("Source: {}", row.label);
                     }
                 }
-                
+
                 ExitCode::from((final_outcome.shell_exit_code() & 0xff) as u8)
             } else {
                 let app = App::new(config.command.join(" "), cli.max_lines);

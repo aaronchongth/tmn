@@ -78,19 +78,33 @@ impl App {
     }
 
     #[must_use]
-    pub fn cmd_name(&self) -> &str { &self.cmd_name }
+    pub fn cmd_name(&self) -> &str {
+        &self.cmd_name
+    }
     #[must_use]
-    pub fn store(&self) -> &LogStore { &self.store }
+    pub fn store(&self) -> &LogStore {
+        &self.store
+    }
     #[must_use]
-    pub fn filter(&self) -> &FilterState { &self.filter }
+    pub fn filter(&self) -> &FilterState {
+        &self.filter
+    }
     #[must_use]
-    pub fn child_state(&self) -> ChildState { self.child_state }
+    pub fn child_state(&self) -> ChildState {
+        self.child_state
+    }
     #[must_use]
-    pub fn sidebar_visible(&self) -> bool { self.sidebar_visible }
+    pub fn sidebar_visible(&self) -> bool {
+        self.sidebar_visible
+    }
     #[must_use]
-    pub fn follow_tail(&self) -> bool { self.follow_tail }
+    pub fn follow_tail(&self) -> bool {
+        self.follow_tail
+    }
     #[must_use]
-    pub fn last_log_viewport_size(&self) -> (u16, u16) { self.last_log_viewport_size }
+    pub fn last_log_viewport_size(&self) -> (u16, u16) {
+        self.last_log_viewport_size
+    }
 
     pub fn on_line(&mut self, line: &str) {
         self.store.ingest_line(line);
@@ -130,7 +144,9 @@ impl App {
         match self.child_state {
             ChildState::Exited(_) => AppAction::ExitTui,
             ChildState::Running => {
-                self.child_state = ChildState::Quitting { stage: QuitStage::IntSent };
+                self.child_state = ChildState::Quitting {
+                    stage: QuitStage::IntSent,
+                };
                 AppAction::SignalChild(SignalReq::Int)
             }
             ChildState::Stopping { .. } | ChildState::Quitting { .. } => self.on_quit_timeout(),
@@ -139,9 +155,11 @@ impl App {
 
     pub fn scroll_up(&mut self, lines: usize) {
         let indices = self.store.filtered_indices(&self.filter);
-        if indices.is_empty() { return; }
+        if indices.is_empty() {
+            return;
+        }
         let h = self.last_log_viewport_size.1 as usize;
-        
+
         let top_idx = if self.follow_tail {
             indices.len().saturating_sub(h)
         } else {
@@ -150,7 +168,7 @@ impl App {
             // Binary search: `entries` is sorted by seq. `filtered_indices` is also sorted.
             indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < current_anchor))
         };
-        
+
         self.follow_tail = false;
         let new_idx = top_idx.saturating_sub(lines);
         let actual = indices[new_idx];
@@ -158,14 +176,19 @@ impl App {
     }
 
     pub fn scroll_down(&mut self, lines: usize) {
-        if self.follow_tail { return; }
+        if self.follow_tail {
+            return;
+        }
         let indices = self.store.filtered_indices(&self.filter);
-        if indices.is_empty() { return; }
-        
+        if indices.is_empty() {
+            return;
+        }
+
         let current_anchor = self.anchor_seq.unwrap_or(0);
         let entries = self.store.entries();
-        let top_idx = indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < current_anchor));
-        
+        let top_idx =
+            indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < current_anchor));
+
         let h = self.last_log_viewport_size.1 as usize;
         let max_top = indices.len().saturating_sub(h.max(1));
         let new_idx = std::cmp::min(top_idx + lines, max_top);
@@ -215,43 +238,45 @@ impl App {
                     }
                     ChildState::Stopping { interrupts_sent } => {
                         let new_sent = interrupts_sent.saturating_add(1);
-                        self.child_state = ChildState::Stopping { interrupts_sent: new_sent };
+                        self.child_state = ChildState::Stopping {
+                            interrupts_sent: new_sent,
+                        };
                         if new_sent >= 3 {
                             AppAction::SignalChild(SignalReq::Term)
                         } else {
                             AppAction::SignalChild(SignalReq::Int)
                         }
                     }
-                    ChildState::Quitting { stage } => {
-                        self.escalate_quit(stage)
-                    }
+                    ChildState::Quitting { stage } => self.escalate_quit(stage),
                     ChildState::Exited(_) => AppAction::None,
                 }
             }
-            KeyCode::Char('q') => {
-                match self.child_state {
-                    ChildState::Running => {
-                        self.child_state = ChildState::Quitting { stage: QuitStage::IntSent };
-                        AppAction::SignalChild(SignalReq::Int)
-                    }
-                    ChildState::Stopping { .. } => {
-                        self.child_state = ChildState::Quitting { stage: QuitStage::TermSent };
-                        AppAction::SignalChild(SignalReq::Term)
-                    }
-                    ChildState::Quitting { stage } => {
-                        self.escalate_quit(stage)
-                    }
-                    ChildState::Exited(_) => AppAction::ExitTui,
+            KeyCode::Char('q') => match self.child_state {
+                ChildState::Running => {
+                    self.child_state = ChildState::Quitting {
+                        stage: QuitStage::IntSent,
+                    };
+                    AppAction::SignalChild(SignalReq::Int)
                 }
-            }
+                ChildState::Stopping { .. } => {
+                    self.child_state = ChildState::Quitting {
+                        stage: QuitStage::TermSent,
+                    };
+                    AppAction::SignalChild(SignalReq::Term)
+                }
+                ChildState::Quitting { stage } => self.escalate_quit(stage),
+                ChildState::Exited(_) => AppAction::ExitTui,
+            },
             KeyCode::Esc => {
                 self.filter.clear_regex();
                 AppAction::None
             }
             KeyCode::Char('g') => {
                 let indices = self.store.filtered_indices(&self.filter);
-                if indices.is_empty() { return AppAction::None; }
-                
+                if indices.is_empty() {
+                    return AppAction::None;
+                }
+
                 self.follow_tail = false;
                 let actual = indices[0];
                 self.anchor_seq = Some(self.store.entries()[actual].seq);
@@ -270,11 +295,26 @@ impl App {
                 self.filter.clear_sources();
                 AppAction::None
             }
-            KeyCode::Char('1') => { self.filter.set_min_severity(None); AppAction::None }
-            KeyCode::Char('2') => { self.filter.set_min_severity(Some(Severity::Debug)); AppAction::None }
-            KeyCode::Char('3') => { self.filter.set_min_severity(Some(Severity::Info)); AppAction::None }
-            KeyCode::Char('4') => { self.filter.set_min_severity(Some(Severity::Warn)); AppAction::None }
-            KeyCode::Char('5') => { self.filter.set_min_severity(Some(Severity::Error)); AppAction::None }
+            KeyCode::Char('1') => {
+                self.filter.set_min_severity(None);
+                AppAction::None
+            }
+            KeyCode::Char('2') => {
+                self.filter.set_min_severity(Some(Severity::Debug));
+                AppAction::None
+            }
+            KeyCode::Char('3') => {
+                self.filter.set_min_severity(Some(Severity::Info));
+                AppAction::None
+            }
+            KeyCode::Char('4') => {
+                self.filter.set_min_severity(Some(Severity::Warn));
+                AppAction::None
+            }
+            KeyCode::Char('5') => {
+                self.filter.set_min_severity(Some(Severity::Error));
+                AppAction::None
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 if self.sidebar_visible {
                     let rows = self.store.source_rows().len();
@@ -372,7 +412,7 @@ mod tests {
     #[test]
     fn test_lifecycle_and_shutdown_transitions() {
         let mut app = App::new("cmd".into(), 100);
-        
+
         let action = app.on_key(key_mod(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(action, AppAction::SignalChild(SignalReq::Int));
         assert_eq!(app.child_state, ChildState::Stopping { interrupts_sent: 1 });
@@ -396,18 +436,33 @@ mod tests {
     #[test]
     fn test_lifecycle_quit_flow() {
         let mut app = App::new("cmd".into(), 100);
-        
+
         let action = app.on_key(key(KeyCode::Char('q')));
         assert_eq!(action, AppAction::SignalChild(SignalReq::Int));
-        assert_eq!(app.child_state, ChildState::Quitting { stage: QuitStage::IntSent });
+        assert_eq!(
+            app.child_state,
+            ChildState::Quitting {
+                stage: QuitStage::IntSent
+            }
+        );
 
         let action2 = app.on_quit_timeout();
         assert_eq!(action2, AppAction::SignalChild(SignalReq::Term));
-        assert_eq!(app.child_state, ChildState::Quitting { stage: QuitStage::TermSent });
+        assert_eq!(
+            app.child_state,
+            ChildState::Quitting {
+                stage: QuitStage::TermSent
+            }
+        );
 
         let action3 = app.on_quit_timeout();
         assert_eq!(action3, AppAction::SignalChild(SignalReq::Kill));
-        assert_eq!(app.child_state, ChildState::Quitting { stage: QuitStage::KillSent });
+        assert_eq!(
+            app.child_state,
+            ChildState::Quitting {
+                stage: QuitStage::KillSent
+            }
+        );
 
         let action_exited = app.on_child_exited(ExitOutcome::Code(0));
         assert_eq!(action_exited, AppAction::ExitTui);
@@ -421,14 +476,14 @@ mod tests {
         app.on_line("L3");
         app.on_line("L4");
         app.on_line("L5");
-        
+
         app.follow_tail = false;
         app.anchor_seq = Some(2); // L3 (seq is 0-indexed, so seq=2 is L3)
 
         app.on_line("L6"); // Evicts L1
 
         assert_eq!(app.anchor_seq, Some(2));
-        
+
         app.on_key(key(KeyCode::Char('G')));
         assert!(app.follow_tail);
         assert_eq!(app.anchor_seq, None);
@@ -441,12 +496,12 @@ mod tests {
             app.on_line(&format!("L{}", i));
         }
         app.last_log_viewport_size = (80, 5);
-        
+
         app.follow_tail = false;
         app.anchor_seq = Some(3);
-        
+
         app.scroll_down(100);
-        
+
         assert!(app.follow_tail);
         assert_eq!(app.anchor_seq, None);
 
@@ -455,7 +510,7 @@ mod tests {
         app.scroll_down(2);
         assert!(app.follow_tail);
         assert_eq!(app.anchor_seq, None);
-        
+
         app.follow_tail = false;
         app.anchor_seq = Some(3);
         app.scroll_down(1);

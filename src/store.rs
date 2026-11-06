@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
 use regex::Regex;
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::parser::{parse_line, LifecycleEvent, LineKind, Severity};
+use crate::parser::{LifecycleEvent, LineKind, Severity, parse_line};
 
 /// Opaque interned identifier for an operating system process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -180,27 +180,30 @@ impl FilterState {
     #[must_use]
     pub fn matches(&self, entry: &LogEntry) -> bool {
         if !self.selected_sources.is_empty() {
-            let mut matched = self.selected_sources.contains(&SourceTarget::Process(entry.process));
-            if !matched
-                && let Some(logger) = entry.logger {
-                    matched = self
-                        .selected_sources
-                        .contains(&SourceTarget::Logger(entry.process, logger));
-                }
+            let mut matched = self
+                .selected_sources
+                .contains(&SourceTarget::Process(entry.process));
+            if !matched && let Some(logger) = entry.logger {
+                matched = self
+                    .selected_sources
+                    .contains(&SourceTarget::Logger(entry.process, logger));
+            }
             if !matched {
                 return false;
             }
         }
 
         if let Some(min) = self.min_severity
-            && (entry.severity == Severity::Unknown || entry.severity < min) {
-                return false;
-            }
+            && (entry.severity == Severity::Unknown || entry.severity < min)
+        {
+            return false;
+        }
 
         if let Some(ref re) = self.compiled_regex
-            && !re.is_match(&entry.plain) {
-                return false;
-            }
+            && !re.is_match(&entry.plain)
+        {
+            return false;
+        }
 
         true
     }
@@ -579,7 +582,11 @@ mod tests {
         store.ingest_line("[component_container_mt-1] [INFO] [1.0] [planner_server]: ready");
 
         let rows = store.source_rows();
-        assert_eq!(rows.len(), 2, "All + 1 process (single logger not expanded)");
+        assert_eq!(
+            rows.len(),
+            2,
+            "All + 1 process (single logger not expanded)"
+        );
         assert_eq!(rows[0].label, "All");
         assert_eq!(rows[0].depth, 0);
         assert_eq!(rows[0].target, None);
@@ -627,7 +634,8 @@ mod tests {
     #[test]
     fn test_continuation_attribution_and_reset() {
         let mut store = LogStore::new(100);
-        let seq0 = store.ingest_line("[component_container_mt-1] [ERROR] [1.0] [planner_server]: boom");
+        let seq0 =
+            store.ingest_line("[component_container_mt-1] [ERROR] [1.0] [planner_server]: boom");
         let seq1 = store.ingest_line("[component_container_mt-1]   File \"x.py\", line 42");
         let seq2 = store.ingest_line("[component_container_mt-1] plain stdout");
         let seq3 = store.ingest_line("[component_container_mt-1]   indented after raw");

@@ -1,13 +1,13 @@
 use crate::app::{ExitOutcome, SignalReq};
-use nix::pty::{openpty, Winsize};
-use nix::sys::signal::{kill, Signal};
+use nix::pty::{Winsize, openpty};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::{Pid, read};
 use std::os::fd::AsFd;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ impl ByteLineSplitter {
         self.buffer.extend_from_slice(chunk);
         let mut lines = Vec::new();
         let mut search_start = 0;
-        
+
         while let Some(newline_pos) = self.buffer[search_start..].iter().position(|&b| b == b'\n') {
             let absolute_pos = search_start + newline_pos;
             let end_idx = if absolute_pos > 0 && self.buffer[absolute_pos - 1] == b'\r' {
@@ -33,14 +33,14 @@ impl ByteLineSplitter {
             } else {
                 absolute_pos
             };
-            
+
             let line_bytes = &self.buffer[..end_idx];
             lines.push(String::from_utf8_lossy(line_bytes).into_owned());
-            
+
             self.buffer.drain(..=absolute_pos);
             search_start = 0; // reset for new buffer length
         }
-        
+
         lines
     }
 
@@ -98,7 +98,8 @@ impl PtySession {
             ws_ypixel: 0,
         };
 
-        let pty_res = openpty(Some(&winsize), None).map_err(|e| format!("Failed to openpty: {e}"))?;
+        let pty_res =
+            openpty(Some(&winsize), None).map_err(|e| format!("Failed to openpty: {e}"))?;
         let master = pty_res.master;
         let slave = pty_res.slave;
 
@@ -107,9 +108,21 @@ impl PtySession {
             cmd.args(&config.command[1..]);
         }
 
-        cmd.stdin(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
-        cmd.stdout(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
-        cmd.stderr(std::process::Stdio::from(slave.try_clone().map_err(|e| format!("Failed to clone slave fd: {e}"))?));
+        cmd.stdin(std::process::Stdio::from(
+            slave
+                .try_clone()
+                .map_err(|e| format!("Failed to clone slave fd: {e}"))?,
+        ));
+        cmd.stdout(std::process::Stdio::from(
+            slave
+                .try_clone()
+                .map_err(|e| format!("Failed to clone slave fd: {e}"))?,
+        ));
+        cmd.stderr(std::process::Stdio::from(
+            slave
+                .try_clone()
+                .map_err(|e| format!("Failed to clone slave fd: {e}"))?,
+        ));
 
         if config.inject_default_env {
             let defaults = [
@@ -138,7 +151,9 @@ impl PtySession {
             });
         }
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn command: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn command: {e}"))?;
         let child_pid = child.id() as i32;
 
         drop(slave);
@@ -146,9 +161,11 @@ impl PtySession {
         let reader_done = Arc::new((Mutex::new(false), Condvar::new()));
         let reader_done_clone = Arc::clone(&reader_done);
 
-        let master_for_reader = master.try_clone().map_err(|e| format!("Failed to clone master fd: {e}"))?;
+        let master_for_reader = master
+            .try_clone()
+            .map_err(|e| format!("Failed to clone master fd: {e}"))?;
         let tx_reader = tx.clone();
-        
+
         thread::spawn(move || {
             let mut splitter = ByteLineSplitter::new();
             let mut buf = [0u8; 4096];
@@ -176,7 +193,7 @@ impl PtySession {
                     }
                 }
             }
-            
+
             drop(master_for_reader);
             let (lock, cvar) = &*reader_done_clone;
             if let Ok(mut done) = lock.lock() {
@@ -198,7 +215,7 @@ impl PtySession {
                 }
                 Err(_) => ExitOutcome::Code(1),
             };
-            
+
             let (lock, cvar) = &*reader_done;
             if let Ok(done) = lock.lock() {
                 #[allow(clippy::collapsible_if)]
@@ -206,14 +223,11 @@ impl PtySession {
                     let _ = cvar.wait_timeout(done, Duration::from_millis(100));
                 }
             }
-            
+
             let _ = tx.send(PtyEvent::Exited(outcome));
         });
 
-        Ok(PtySession {
-            child_pid,
-            master,
-        })
+        Ok(PtySession { child_pid, master })
     }
 
     pub fn send_signal(&self, sig: SignalReq) {
@@ -233,7 +247,11 @@ impl PtySession {
             ws_ypixel: 0,
         };
         unsafe {
-            nix::libc::ioctl(self.master.as_raw_fd(), nix::libc::TIOCSWINSZ as _, &winsize);
+            nix::libc::ioctl(
+                self.master.as_raw_fd(),
+                nix::libc::TIOCSWINSZ as _,
+                &winsize,
+            );
         }
     }
 }
@@ -245,7 +263,7 @@ mod tests {
     #[test]
     fn line_splitter_preserves_multibyte_utf8_across_chunks_and_survives_invalid_bytes() {
         let mut splitter = ByteLineSplitter::new();
-        
+
         let lines = splitter.push_chunk(&[0xff, b'a', b'\n']);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0], "\u{fffd}a");
@@ -254,7 +272,7 @@ mod tests {
         assert_eq!(msg.len(), 5);
         let chunk1 = &msg[..2];
         let chunk2 = &msg[2..];
-        
+
         let lines1 = splitter.push_chunk(chunk1);
         assert!(lines1.is_empty());
         let lines2 = splitter.push_chunk(chunk2);

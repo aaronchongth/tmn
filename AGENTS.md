@@ -2,12 +2,11 @@
 
 ## Architecture & Design Spec
 - The canonical specification is in [docs/design.md](docs/design.md).
-- Implementation plan: [docs/superpowers/plans/2026-11-06-tmn-v1.md](docs/superpowers/plans/2026-11-06-tmn-v1.md).
 
 ## Verification & Commands
 Before submitting or completing any task, run:
 ```bash
-cargo test && cargo clippy --all-targets
+cargo fmt --check && cargo test && cargo clippy --all-targets
 ```
 All tests must pass and clippy must report zero warnings.
 

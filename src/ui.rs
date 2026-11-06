@@ -3,15 +3,15 @@ use crate::store::ProcessState;
 use ansi_to_tui::IntoText;
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, ListState, Paragraph},
-    Frame, Terminal,
 };
 use std::io::{self, Stdout};
 use std::sync::Once;
@@ -98,7 +98,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
 
             let indent = " ".repeat(row.depth as usize * 2);
             let mut label = format!("{sel_marker} {indent}{status_dot} {}", row.label);
-            
+
             if row.warn_count > 0 || row.error_count > 0 {
                 label.push_str(&format!(" (!{} ×{})", row.warn_count, row.error_count));
             }
@@ -111,7 +111,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
 
             items.push(ListItem::new(label).style(style));
         }
-        
+
         let mut list_state = ListState::default();
         list_state.select(Some(app.selected_row));
         frame.render_stateful_widget(List::new(items), sidebar_area, &mut list_state);
@@ -125,7 +125,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
 
     let multiple_procs = app.filter().shows_multiple_processes(app.store());
     let filtered_indices = app.store().filtered_indices(app.filter());
-    
+
     let h = log_area.height as usize;
     let top_idx = if app.follow_tail() {
         filtered_indices.len().saturating_sub(h)
@@ -134,9 +134,10 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
         let entries = app.store().entries();
         filtered_indices.partition_point(|&v| entries.get(v).is_some_and(|e| e.seq < anchor))
     };
-    
-    let visible_indices = &filtered_indices[top_idx..std::cmp::min(top_idx + h, filtered_indices.len())];
-    
+
+    let visible_indices =
+        &filtered_indices[top_idx..std::cmp::min(top_idx + h, filtered_indices.len())];
+
     let mut log_lines = Vec::new();
     let entries = app.store().entries();
     for &idx in visible_indices {
@@ -147,7 +148,8 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
                 if let Ok(mut text) = entry.raw_text().as_bytes().into_text() {
                     if !text.lines.is_empty() {
                         let first_line = text.lines.remove(0);
-                        let mut new_spans = vec![Span::styled(tag, Style::default().fg(Color::DarkGray))];
+                        let mut new_spans =
+                            vec![Span::styled(tag, Style::default().fg(Color::DarkGray))];
                         new_spans.extend(first_line.into_iter());
                         Line::from(new_spans)
                     } else {
@@ -157,7 +159,10 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
                     Line::from(format!("{}{}", tag, entry.plain_text()))
                 }
             } else {
-                let sliced_raw = entry.raw_text().get(entry.display_offset..).unwrap_or(entry.raw_text());
+                let sliced_raw = entry
+                    .raw_text()
+                    .get(entry.display_offset..)
+                    .unwrap_or(entry.raw_text());
                 if let Ok(mut text) = sliced_raw.as_bytes().into_text() {
                     if !text.lines.is_empty() {
                         text.lines.remove(0)
@@ -192,14 +197,35 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     }
     top_spans.push(Span::styled(
         state_text,
-        Style::default().fg(state_color).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(state_color)
+            .add_modifier(Modifier::BOLD),
     ));
 
-    let paused_str = if app.follow_tail() { "" } else { " [PAUSED — press G to follow]" };
-    let sev_str = app.filter().min_severity().map(|s| s.as_str()).unwrap_or("ALL");
-    let regex_str = if app.filter().query_text().is_empty() { "" } else { " REGEX" };
+    let paused_str = if app.follow_tail() {
+        ""
+    } else {
+        " [PAUSED — press G to follow]"
+    };
+    let sev_str = app
+        .filter()
+        .min_severity()
+        .map(|s| s.as_str())
+        .unwrap_or("ALL");
+    let regex_str = if app.filter().query_text().is_empty() {
+        ""
+    } else {
+        " REGEX"
+    };
     top_spans.push(Span::styled(
-        format!(" | Sev: {}{} | {}/{} {}", sev_str, regex_str, filtered_indices.len(), entries.len(), paused_str),
+        format!(
+            " | Sev: {}{} | {}/{} {}",
+            sev_str,
+            regex_str,
+            filtered_indices.len(),
+            entries.len(),
+            paused_str
+        ),
         Style::default().add_modifier(Modifier::BOLD),
     ));
 
@@ -208,14 +234,22 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     let bottom_str = if app.is_searching {
         if let Some(err) = app.filter().regex_error() {
             Line::from(vec![
-                Span::styled(format!("/{} ", app.filter().query_text()), Style::default().fg(Color::Yellow)),
-                Span::styled(format!("(Invalid Regex: {})", err), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("/{} ", app.filter().query_text()),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(
+                    format!("(Invalid Regex: {})", err),
+                    Style::default().fg(Color::Yellow),
+                ),
             ])
         } else {
             Line::from(format!("/{}", app.filter().query_text()))
         }
     } else {
-        Line::from("j/k: Navigate | Enter: Solo | Space: Multi | a: All | 1-5: Sev | /: Search | q: Quit")
+        Line::from(
+            "j/k: Navigate | Enter: Solo | Space: Multi | a: All | 1-5: Sev | /: Search | q: Quit",
+        )
     };
     frame.render_widget(Paragraph::new(bottom_str), bottom_area);
 }
@@ -233,7 +267,7 @@ mod tests {
         app.on_line("[proc-1] \x1b[31m[ERROR] [logger1]: boom\x1b[0m");
 
         terminal.draw(|f| render(f, &mut app)).unwrap();
-        
+
         let _buffer = terminal.backend().buffer();
         assert!(app.last_log_viewport_size.0 > 0);
         assert!(app.last_log_viewport_size.1 > 0);
@@ -256,7 +290,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = App::new("cmd".into(), 100);
         app.on_key(key(KeyCode::Char('z'))); // hide sidebar
-        
+
         // Test slicing fallback safety
         app.on_line("\x1b[31m[proc-1] café\x1b[0m");
 
@@ -273,7 +307,9 @@ mod tests {
         // 1. RUNNING (default, Green)
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let buf = terminal.backend().buffer();
-        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let line = (0..100)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect::<String>();
         assert!(line.contains("ros2 launch test"));
         assert!(line.contains("RUNNING"));
         let run_idx = line.find("RUNNING").unwrap();
@@ -283,7 +319,9 @@ mod tests {
         app.on_child_exited(ExitOutcome::Code(0));
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let buf = terminal.backend().buffer();
-        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let line = (0..100)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect::<String>();
         assert!(line.contains("ros2 launch test"));
         assert!(line.contains("EXITED (0)"));
         let exit_idx = line.find("EXITED (0)").unwrap();
@@ -295,7 +333,9 @@ mod tests {
         app.on_child_exited(ExitOutcome::Code(-9));
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let buf = terminal.backend().buffer();
-        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let line = (0..100)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect::<String>();
         assert!(line.contains("CRASHED (-9)"));
         let crash_idx = line.find("CRASHED (-9)").unwrap();
         assert_eq!(buf.cell((crash_idx as u16, 0)).unwrap().fg, Color::Red);
@@ -306,7 +346,9 @@ mod tests {
         app.on_child_exited(ExitOutcome::Signal(2));
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let buf = terminal.backend().buffer();
-        let line = (0..100).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect::<String>();
+        let line = (0..100)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+            .collect::<String>();
         assert!(line.contains("CRASHED (sig 2)"));
         let sig_idx = line.find("CRASHED (sig 2)").unwrap();
         assert_eq!(buf.cell((sig_idx as u16, 0)).unwrap().fg, Color::Red);
@@ -317,7 +359,7 @@ mod tests {
         let backend = TestBackend::new(100, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = App::new("cmd".into(), 100);
-        
+
         app.on_key(key(KeyCode::Char('/')));
         for c in "[unclosed".chars() {
             app.on_key(key(KeyCode::Char(c)));
@@ -325,12 +367,16 @@ mod tests {
 
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let buffer = terminal.backend().buffer();
-        
+
         let bottom_y = 19;
-        let line = (0..100).map(|x| buffer.cell((x, bottom_y)).unwrap().symbol().to_string()).collect::<String>();
+        let line = (0..100)
+            .map(|x| buffer.cell((x, bottom_y)).unwrap().symbol().to_string())
+            .collect::<String>();
         assert!(line.contains("/[unclosed"));
         assert!(line.contains("Invalid Regex"));
-        assert_eq!(buffer.cell((0, bottom_y)).unwrap().fg, ratatui::style::Color::Yellow);
+        assert_eq!(
+            buffer.cell((0, bottom_y)).unwrap().fg,
+            ratatui::style::Color::Yellow
+        );
     }
-
 }

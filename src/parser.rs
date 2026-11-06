@@ -4,8 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
-        .expect("valid regex")
+    Regex::new(r"\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\))").expect("valid regex")
 });
 
 static LAUNCH_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -16,8 +15,7 @@ static LAUNCH_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static CHILD_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:\d+\.\d+\s+)?\[(?P<proc>[^\[\]]+-\d+)\] (?P<rest>.*)$")
-        .expect("valid regex")
+    Regex::new(r"^(?:\d+\.\d+\s+)?\[(?P<proc>[^\[\]]+-\d+)\] (?P<rest>.*)$").expect("valid regex")
 });
 
 static RCUTILS_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -27,17 +25,14 @@ static RCUTILS_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid regex")
 });
 
-static CONTINUATION_STACK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^#\d+\s").expect("valid regex")
-});
+static CONTINUATION_STACK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^#\d+\s").expect("valid regex"));
 
-static PID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"process started with pid \[(\d+)\]").expect("valid regex")
-});
+static PID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"process started with pid \[(\d+)\]").expect("valid regex"));
 
-static EXIT_CODE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"exit code (-?\d+)").expect("valid regex")
-});
+static EXIT_CODE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"exit code (-?\d+)").expect("valid regex"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -117,9 +112,8 @@ fn parse_severity(s: &str) -> Severity {
 }
 
 fn ends_with_dash_digits(s: &str) -> bool {
-    s.rsplit_once('-').is_some_and(|(_, suffix)| {
-        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
-    })
+    s.rsplit_once('-')
+        .is_some_and(|(_, suffix)| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn parse_lifecycle(body: &str) -> Option<LifecycleEvent> {
@@ -128,7 +122,10 @@ fn parse_lifecycle(body: &str) -> Option<LifecycleEvent> {
             .captures(body)
             .and_then(|c| c.get(1)?.as_str().parse::<u32>().ok());
         Some(LifecycleEvent::Started { pid })
-    } else if body.trim_start().starts_with("process has finished cleanly") {
+    } else if body
+        .trim_start()
+        .starts_with("process has finished cleanly")
+    {
         Some(LifecycleEvent::Exited { code: Some(0) })
     } else if body.trim_start().starts_with("process has died [") {
         let code = EXIT_CODE_RE
@@ -292,9 +289,7 @@ mod tests {
                 kind: LineKind::Launch {
                     process: "robot_state_publisher-1".to_string(),
                     severity: Severity::Info,
-                    lifecycle: Some(LifecycleEvent::Started {
-                        pid: Some(3114445),
-                    }),
+                    lifecycle: Some(LifecycleEvent::Started { pid: Some(3114445) }),
                 },
             }
         );
@@ -370,7 +365,8 @@ mod tests {
 
     #[test]
     fn test_execute_local_rcutils_composable() {
-        let raw = "[component_container_mt-1] [WARN] [1793679405.123] [controller_server]: Goal slow";
+        let raw =
+            "[component_container_mt-1] [WARN] [1793679405.123] [controller_server]: Goal slow";
         let parsed = parse_line(raw);
         assert_eq!(
             parsed,
@@ -395,10 +391,7 @@ mod tests {
     fn parse_line_preserves_child_ansi_and_char_boundary_display_offset() {
         let raw = "\x1b[0m[node_café-1] \x1b[33m[WARN] [my_node]: café\x1b[0m";
         let parsed = parse_line(raw);
-        assert_eq!(
-            parsed.plain,
-            "[node_café-1] [WARN] [my_node]: café"
-        );
+        assert_eq!(parsed.plain, "[node_café-1] [WARN] [my_node]: café");
         assert_eq!(
             parsed.kind,
             LineKind::Prefixed {
@@ -409,10 +402,7 @@ mod tests {
                 is_continuation: false,
             }
         );
-        assert_eq!(
-            &raw[19..],
-            "\x1b[33m[WARN] [my_node]: café\x1b[0m"
-        );
+        assert_eq!(&raw[19..], "\x1b[33m[WARN] [my_node]: café\x1b[0m");
     }
 
     #[test]
