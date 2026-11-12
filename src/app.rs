@@ -1,6 +1,6 @@
 use crate::parser::Severity;
 use crate::store::{FilterState, LogStore};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitOutcome {
@@ -47,13 +47,32 @@ pub enum AppAction {
     ExitTui,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpMode {
+    Closed,
+    HeldOpen,
+    ToggledOpen,
+}
+
+fn is_help_trigger(key: &KeyEvent) -> bool {
+    let disallowed = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    if key.modifiers.intersects(disallowed) {
+        return false;
+    }
+    key.code == KeyCode::Char('?')
+        || (key.code == KeyCode::Char('/') && key.modifiers.contains(KeyModifiers::SHIFT))
+}
+
 pub struct App {
     cmd_name: String,
     store: LogStore,
     filter: FilterState,
     child_state: ChildState,
     sidebar_visible: bool,
+    wrap_lines: bool,
     follow_tail: bool,
+    help_mode: HelpMode,
+    supports_key_release: bool,
     pub last_log_viewport_size: (u16, u16),
     pub selected_row: usize,
     pub anchor_seq: Option<u64>,
@@ -69,7 +88,10 @@ impl App {
             filter: FilterState::new(),
             child_state: ChildState::Running,
             sidebar_visible: true,
+            wrap_lines: false,
             follow_tail: true,
+            help_mode: HelpMode::Closed,
+            supports_key_release: false,
             last_log_viewport_size: (0, 0),
             selected_row: 0,
             anchor_seq: None,
@@ -98,8 +120,23 @@ impl App {
         self.sidebar_visible
     }
     #[must_use]
+    pub fn wrap_lines(&self) -> bool {
+        self.wrap_lines
+    }
+    #[must_use]
     pub fn follow_tail(&self) -> bool {
         self.follow_tail
+    }
+    #[must_use]
+    pub fn help_mode(&self) -> HelpMode {
+        self.help_mode
+    }
+    #[must_use]
+    pub fn supports_key_release(&self) -> bool {
+        self.supports_key_release
+    }
+    pub fn set_supports_key_release(&mut self, supported: bool) {
+        self.supports_key_release = supported;
     }
     #[must_use]
     pub fn last_log_viewport_size(&self) -> (u16, u16) {
@@ -201,8 +238,52 @@ impl App {
         }
     }
 
+    fn handle_ctrl_c(&mut self) -> AppAction {
+        match self.child_state {
+            ChildState::Running => {
+                self.child_state = ChildState::Stopping { interrupts_sent: 1 };
+                AppAction::SignalChild(SignalReq::Int)
+            }
+            ChildState::Stopping { interrupts_sent } => {
+                let new_sent = interrupts_sent.saturating_add(1);
+                self.child_state = ChildState::Stopping {
+                    interrupts_sent: new_sent,
+                };
+                if new_sent >= 3 {
+                    AppAction::SignalChild(SignalReq::Term)
+                } else {
+                    AppAction::SignalChild(SignalReq::Int)
+                }
+            }
+            ChildState::Quitting { stage } => self.escalate_quit(stage),
+            ChildState::Exited(_) => AppAction::None,
+        }
+    }
+
+    fn handle_quit(&mut self) -> AppAction {
+        match self.child_state {
+            ChildState::Running => {
+                self.child_state = ChildState::Quitting {
+                    stage: QuitStage::IntSent,
+                };
+                AppAction::SignalChild(SignalReq::Int)
+            }
+            ChildState::Stopping { .. } => {
+                self.child_state = ChildState::Quitting {
+                    stage: QuitStage::TermSent,
+                };
+                AppAction::SignalChild(SignalReq::Term)
+            }
+            ChildState::Quitting { stage } => self.escalate_quit(stage),
+            ChildState::Exited(_) => AppAction::ExitTui,
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) -> AppAction {
         if self.is_searching {
+            if key.kind == KeyEventKind::Release {
+                return AppAction::None;
+            }
             match key.code {
                 KeyCode::Esc => {
                     self.is_searching = false;
@@ -229,44 +310,49 @@ impl App {
             return AppAction::None;
         }
 
-        match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                match self.child_state {
-                    ChildState::Running => {
-                        self.child_state = ChildState::Stopping { interrupts_sent: 1 };
-                        AppAction::SignalChild(SignalReq::Int)
-                    }
-                    ChildState::Stopping { interrupts_sent } => {
-                        let new_sent = interrupts_sent.saturating_add(1);
-                        self.child_state = ChildState::Stopping {
-                            interrupts_sent: new_sent,
-                        };
-                        if new_sent >= 3 {
-                            AppAction::SignalChild(SignalReq::Term)
-                        } else {
-                            AppAction::SignalChild(SignalReq::Int)
-                        }
-                    }
-                    ChildState::Quitting { stage } => self.escalate_quit(stage),
-                    ChildState::Exited(_) => AppAction::None,
+        if self.help_mode != HelpMode::Closed {
+            if key.kind == KeyEventKind::Release {
+                if self.help_mode == HelpMode::HeldOpen
+                    && matches!(key.code, KeyCode::Char('?') | KeyCode::Char('/'))
+                {
+                    self.help_mode = HelpMode::Closed;
+                }
+                return AppAction::None;
+            }
+            if key.kind == KeyEventKind::Press {
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    return self.handle_ctrl_c();
+                }
+                if key.code == KeyCode::Char('q') && key.modifiers.is_empty() {
+                    return self.handle_quit();
+                }
+                if key.code == KeyCode::Esc
+                    || (self.help_mode == HelpMode::ToggledOpen && is_help_trigger(&key))
+                {
+                    self.help_mode = HelpMode::Closed;
                 }
             }
-            KeyCode::Char('q') => match self.child_state {
-                ChildState::Running => {
-                    self.child_state = ChildState::Quitting {
-                        stage: QuitStage::IntSent,
-                    };
-                    AppAction::SignalChild(SignalReq::Int)
-                }
-                ChildState::Stopping { .. } => {
-                    self.child_state = ChildState::Quitting {
-                        stage: QuitStage::TermSent,
-                    };
-                    AppAction::SignalChild(SignalReq::Term)
-                }
-                ChildState::Quitting { stage } => self.escalate_quit(stage),
-                ChildState::Exited(_) => AppAction::ExitTui,
-            },
+            return AppAction::None;
+        }
+
+        if key.kind == KeyEventKind::Release {
+            return AppAction::None;
+        }
+
+        if key.kind == KeyEventKind::Press && is_help_trigger(&key) {
+            self.help_mode = if self.supports_key_release {
+                HelpMode::HeldOpen
+            } else {
+                HelpMode::ToggledOpen
+            };
+            return AppAction::None;
+        }
+
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.handle_ctrl_c()
+            }
+            KeyCode::Char('q') => self.handle_quit(),
             KeyCode::Esc => {
                 self.filter.clear_regex();
                 AppAction::None
@@ -289,6 +375,10 @@ impl App {
             }
             KeyCode::Char('z') => {
                 self.sidebar_visible = !self.sidebar_visible;
+                AppAction::None
+            }
+            KeyCode::Char('w') => {
+                self.wrap_lines = !self.wrap_lines;
                 AppAction::None
             }
             KeyCode::Char('a') => {
@@ -522,5 +612,118 @@ mod tests {
     fn test_app_cmd_name() {
         let app = App::new("ros2 launch my_pkg my.launch.py".into(), 100);
         assert_eq!(app.cmd_name(), "ros2 launch my_pkg my.launch.py");
+    }
+
+    fn key_kind(code: KeyCode, modifiers: KeyModifiers, kind: KeyEventKind) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind,
+            state: KeyEventState::empty(),
+        }
+    }
+
+    #[test]
+    fn test_wrap_toggle_key_and_search_isolation() {
+        let mut app = App::new("cmd".into(), 100);
+        assert!(!app.wrap_lines());
+
+        app.on_key(key(KeyCode::Char('w')));
+        assert!(app.wrap_lines());
+
+        // Key release should never toggle wrap_lines back off
+        app.on_key(key_kind(
+            KeyCode::Char('w'),
+            KeyModifiers::empty(),
+            KeyEventKind::Release,
+        ));
+        assert!(app.wrap_lines());
+
+        // Typing 'w' inside '/' search appends to query instead of toggling wrap_lines
+        app.on_key(key(KeyCode::Char('/')));
+        app.on_key(key(KeyCode::Char('w')));
+        assert!(app.wrap_lines());
+        assert_eq!(app.filter().query_text(), "w");
+        app.on_key(key(KeyCode::Enter));
+
+        app.on_key(key(KeyCode::Char('w')));
+        assert!(!app.wrap_lines());
+    }
+
+    #[test]
+    fn test_help_hold_to_peek_when_key_release_supported() {
+        let mut app = App::new("cmd".into(), 100);
+        app.set_supports_key_release(true);
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        // Press '?' opens HeldOpen
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::HeldOpen);
+
+        // Auto-repeat while holding '?' keeps it HeldOpen
+        app.on_key(key_kind(
+            KeyCode::Char('?'),
+            KeyModifiers::empty(),
+            KeyEventKind::Repeat,
+        ));
+        assert_eq!(app.help_mode(), HelpMode::HeldOpen);
+
+        // Filter keys are ignored while help popup is open
+        app.on_key(key(KeyCode::Char('4')));
+        assert_eq!(app.filter().min_severity(), None);
+
+        // Releasing Shift slightly before '/' emits KeyCode::Char('/') on Release -> must close!
+        app.on_key(key_kind(
+            KeyCode::Char('/'),
+            KeyModifiers::empty(),
+            KeyEventKind::Release,
+        ));
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        // Shift + '/' press also opens HeldOpen, and releasing '?' closes it
+        app.on_key(key_mod(KeyCode::Char('/'), KeyModifiers::SHIFT));
+        assert_eq!(app.help_mode(), HelpMode::HeldOpen);
+        app.on_key(key_kind(
+            KeyCode::Char('?'),
+            KeyModifiers::SHIFT,
+            KeyEventKind::Release,
+        ));
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        // Esc also closes HeldOpen if terminal loses focus before key release
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::HeldOpen);
+        app.on_key(key(KeyCode::Esc));
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+    }
+
+    #[test]
+    fn test_help_toggle_fallback_when_key_release_unsupported() {
+        let mut app = App::new("cmd".into(), 100);
+        assert!(!app.supports_key_release());
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::ToggledOpen);
+
+        // Filter keys ignored while ToggledOpen
+        app.on_key(key(KeyCode::Char('5')));
+        assert_eq!(app.filter().min_severity(), None);
+
+        // Pressing '?' again toggles it closed
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        // Pressing Esc also closes ToggledOpen
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::ToggledOpen);
+        app.on_key(key(KeyCode::Esc));
+        assert_eq!(app.help_mode(), HelpMode::Closed);
+
+        // Emergency quit ('q') still works even while help popup is open
+        app.on_child_exited(ExitOutcome::Code(0));
+        app.on_key(key(KeyCode::Char('?')));
+        assert_eq!(app.help_mode(), HelpMode::ToggledOpen);
+        assert_eq!(app.on_key(key(KeyCode::Char('q'))), AppAction::ExitTui);
     }
 }

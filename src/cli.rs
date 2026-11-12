@@ -1,10 +1,18 @@
 use clap::Parser;
 use std::ffi::OsString;
 
+const EXAMPLES: &str = "\
+Examples:
+  tmn ros2 launch demo_nodes_cpp talker_listener_launch.py
+  tmn ros2 launch pkg bringup.launch.py --ros-args -r __ns:=/bot1
+  tmn --headless -n 50000 ros2 launch demo_nodes_cpp talker_listener_launch.py";
+
 #[derive(Parser, Debug, Clone, PartialEq, Eq)]
 #[command(
     name = "tmn",
     about = "Terminal UI log viewer for ros2 launch and multi-process commands",
+    override_usage = "tmn [OPTIONS] [--] <COMMAND> [ARGS]...",
+    after_help = EXAMPLES,
     version,
     max_term_width = 80
 )]
@@ -59,7 +67,7 @@ Terminal UI log viewer for ros2 launch and multi-process commands
 Usage: tmn [OPTIONS] [--] <COMMAND> [ARGS]...
 
 Examples:
-  tmn ros2 launch demo_nodes_cpp talker_listener.launch.py
+  tmn ros2 launch demo_nodes_cpp talker_listener_launch.py
   tmn --headless ros2 launch pkg bringup.launch.py --ros-args -r __ns:=/bot1
 
 Run 'tmn --help' for all options.
@@ -107,7 +115,7 @@ mod tests {
         let err = parse_args(["tmn"]).unwrap_err();
         assert_eq!(err.exit_code, 2);
         assert!(err.message.contains("Usage: tmn"));
-        assert!(err.message.contains("ros2 launch"));
+        assert!(err.message.contains("talker_listener_launch.py"));
         assert!(err.message.contains("tmn --help"));
     }
 
@@ -193,10 +201,18 @@ mod tests {
 
     #[test]
     fn help_and_version_fit_80_cols_and_exit_0() {
-        let CliOutcome::Printed(help) = parse_args(["tmn", "-h"]).unwrap() else {
-            panic!()
-        };
-        assert!(help.lines().all(|l| l.chars().count() <= 80));
+        for flag in ["-h", "--help"] {
+            let CliOutcome::Printed(help) = parse_args(["tmn", flag]).unwrap() else {
+                panic!()
+            };
+            assert!(
+                help.lines().all(|l| l.chars().count() <= 80),
+                "line exceeded 80 cols in {flag}:\n{help}"
+            );
+            assert!(help.contains("Usage: tmn [OPTIONS] [--] <COMMAND> [ARGS]..."));
+            assert!(help.contains("Examples:"));
+            assert!(help.contains("talker_listener_launch.py"));
+        }
         let CliOutcome::Printed(ver) = parse_args(["tmn", "-V"]).unwrap() else {
             panic!()
         };

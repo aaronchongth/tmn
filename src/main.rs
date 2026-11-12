@@ -22,6 +22,7 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
             return 1;
         }
     };
+    app.set_supports_key_release(guard.supports_key_release());
 
     let mut last_pty_size = (0u16, 0u16);
     let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
@@ -67,17 +68,15 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
             if let Ok(event) = crossterm::event::read() {
                 match event {
                     crossterm::event::Event::Key(key) => {
-                        if key.kind == crossterm::event::KeyEventKind::Press {
-                            let action = app.on_key(key);
-                            if handle_action(&session, action, &mut last_quit_escalation) {
-                                break;
-                            }
-                            let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
-                            let vp = app.last_log_viewport_size();
-                            if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
-                                session.resize(vp.0, vp.1);
-                                last_pty_size = vp;
-                            }
+                        let action = app.on_key(key);
+                        if handle_action(&session, action, &mut last_quit_escalation) {
+                            break;
+                        }
+                        let _ = guard.terminal_mut().draw(|f| render(f, &mut app));
+                        let vp = app.last_log_viewport_size();
+                        if vp.0 > 0 && vp.1 > 0 && vp != last_pty_size {
+                            session.resize(vp.0, vp.1);
+                            last_pty_size = vp;
                         }
                     }
                     crossterm::event::Event::Resize(_c, _r) => {

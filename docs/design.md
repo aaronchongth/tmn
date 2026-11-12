@@ -29,7 +29,7 @@ tmn [OPTIONS] [--] <COMMAND> [ARGS]...
 | `-V, --version` | — | Print `tmn <version>` and exit `0`. |
 
 ### Argument & Exit-Code Rules
-- `<COMMAND> [ARGS]...` uses trailing variable arguments (`trailing_var_arg = true` without `allow_hyphen_values = true`) so unknown flags before `<COMMAND>` are rejected with exit code `2`, while flags after `<COMMAND>` (e.g., `tmn ros2 launch demo_nodes_cpp talker_listener.launch.py --ros-args ...`) pass through without requiring `--`; `tmn -- ...` is supported when `<COMMAND>` itself starts with `-`.
+- `<COMMAND> [ARGS]...` uses trailing variable arguments (`trailing_var_arg = true` without `allow_hyphen_values = true`) so unknown flags before `<COMMAND>` are rejected with exit code `2`, while flags after `<COMMAND>` (e.g., `tmn ros2 launch demo_nodes_cpp talker_listener_launch.py --ros-args ...`) pass through without requiring `--`; `tmn -- ...` is supported when `<COMMAND>` itself starts with `-`.
 - **No arguments (`tmn`):** Writes a concise 1-line description, usage synopsis, two examples, and `Run 'tmn --help' for all options.` to `stderr`, then exits with code `2`.
 - **Invalid flags / `--max-lines 0`:** Writes an actionable error message to `stderr` and exits with code `2`.
 - **Interactive mode exit codes:** `0` when the user quits cleanly (`q`); `1` if PTY allocation, child spawn, or terminal initialization fails.
@@ -112,11 +112,14 @@ An entry passes the active filter iff **all three** hold:
 ## 6. Minimal TUI Layout & Keybindings
 
 ### Screen Regions
-1. **Top status bar (1 line):** Command summary, lifecycle badge (`RUNNING` green / `STOPPING...` yellow / `EXITED (0)` dim / `CRASHED (code)` red), active severity & regex badges, visible/total line counter, and `[PAUSED — press G to follow]` indicator when tail-follow is disengaged.
+1. **Top status bar (1 line):** Command summary, lifecycle badge (`RUNNING` green / `STOPPING...` yellow / `EXITED (0)` dim / `CRASHED (code)` red), active severity, `REGEX`, and `[WRAP]` badges, visible/total line counter, and `[PAUSED — press G to follow]` indicator when tail-follow is disengaged.
 2. **Main split area:**
    - **Left source pane (~28 cols, collapsible via `z`):** `All` row at top, followed by processes (and indented child loggers for multi-logger processes). Each row shows selection marker (`*` when selected, space otherwise), status dot (`●` running, `✓` exited 0, `✗` crashed/non-zero, `·` passive), name, and compact `!W`/`×E` counters when `> 0`.
-   - **Right log viewport (`1fr`):** Renders only the visible slice of matching entries, converting raw ANSI SGR escape sequences lazily via `ansi-to-tui`. When showing multiple processes (`All` or multi-select across `>= 2` processes), prepends a dim `[proc-N]` gutter tag; when soloing a single process or logger, omits the redundant `[proc-N]` prefix to maximize horizontal space.
-3. **Bottom bar (1 line):** Concise key hint bar in normal mode; live `/` search input prompt in search mode.
+   - **Right log viewport (`1fr`):** Renders only the visible slice of matching entries, converting raw ANSI SGR escape sequences lazily via `ansi-to-tui`. When showing multiple processes (`All` or multi-select across `>= 2` processes), prepends a dim `[proc-N]` gutter tag; when soloing a single process or logger, omits the redundant `[proc-N]` prefix to maximize horizontal space. When soft line wrapping (`w`) is enabled, visible lines are wrapped by terminal display column width while preserving ANSI SGR styles, walking backward from the newest matching entry in `follow_tail` mode so wrapped multi-row entries never push the latest output below the viewport.
+3. **Bottom bar (1 line):** Concise 80-column key hint bar in normal mode (`Enter/Spc: Filter | z: Zoom | w: Wrap | 1-5: Sev | /: Find | ?: Help | q: Quit`); live `/` search input prompt in search mode.
+4. **Shortcuts popup overlay (`?`):** Centered modal overlay documenting all navigation, view/copy, scrolling, filtering, and lifecycle shortcuts. `TerminalGuard` queries `crossterm::terminal::supports_keyboard_enhancement()` at startup and enables Kitty keyboard protocol event-type reporting when supported:
+   - **Key-release supported (`HeldOpen`):** Holding `?` (`?` or `Shift + /`) opens the popup and releasing `?` or `/` closes it immediately (`Esc` also closes it).
+   - **Fallback terminals (`ToggledOpen`):** Pressing `?` toggles the popup open, and pressing `?` or `Esc` closes it.
 
 ### Keybindings
 | Key | Action |
@@ -127,9 +130,11 @@ An entry passes the active filter iff **all three** hold:
 | `a` | Clear source selection (`All` sources). |
 | `1` / `2` / `3` / `4` / `5` | Set minimum severity: `1`=ALL, `2`=DEBUG+, `3`=INFO+, `4`=WARN+, `5`=ERROR+. |
 | `/` | Enter regex search input mode (`Enter` commits filter and returns to normal mode; `Esc` clears regex filter and returns to normal mode; `Ctrl-U` clears input buffer; in normal mode `Esc` also clears an active regex filter). |
-| `PgUp` / `PgDn`, `Ctrl-U` / `Ctrl-D` | Scroll log viewport by half/full page; scrolling up disengages tail-follow automatically. |
+| `PgUp` / `PgDn`, `Ctrl-U` / `Ctrl-D` | Scroll log viewport by full/half page; scrolling up disengages tail-follow automatically. |
 | `g` / `G` | Jump to oldest buffered line (`g`, pauses follow) / jump to latest line & re-engage tail-follow (`G`). |
-| `z` | Toggle sidebar visibility (full-width log zoom). |
+| `z` | Toggle sidebar visibility (full-width log zoom for mouse wheel scroll & clean terminal text selection). |
+| `w` | Toggle soft line wrapping in the log viewport. |
+| `?` | Show full shortcuts popup (hold-to-peek when terminal supports key-release; toggle with `?`/`Esc` otherwise). |
 | `Ctrl-C` | Stop child process group (`SIGINT`) and hold TUI in post-mortem mode (escalates if pressed repeatedly while stopping). |
 | `q` | Quit `tmn` (cleanly stops child first if still running). |
 
