@@ -32,6 +32,11 @@ Wrap a `ros2 launch` command:
 tmn ros2 launch demo_nodes_cpp talker_listener_launch.py
 ```
 
+Wrap a larger multi-node simulation stack ([`open-rmf/rmf_demos`](https://github.com/open-rmf/rmf_demos)):
+```sh
+tmn ros2 launch rmf_demos_gz office.launch.xml
+```
+
 Pass trailing `--ros-args` directly (no `--` needed unless `<COMMAND>` starts with `-`):
 ```sh
 tmn ros2 launch demo_nodes_cpp talker_listener_launch.py --ros-args -r __ns:=/bot1
