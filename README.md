@@ -1,10 +1,13 @@
 # tmn (too-many-nodes)
 
+> [!WARNING]
+> **Active Development:** `tmn` is under active early development. CLI flags, keybindings, and behavior may change.
+
 A minimal, single-binary Linux terminal UI wrapper for `ros2 launch` (and arbitrary multi-process commands). It runs the target command inside a pseudo-terminal (PTY), captures the full output firehose in memory, and provides a `k9s`-inspired TUI to filter logs interactively by OS process, composable ROS logger, severity, and regex—with zero linkage to `rcl`, `rmw`, or Python `ros2cli`.
 
 ## Installation
 
-**Prerequisites:** Linux and Rust `>= 1.91` (`cargo` / `rustup`).
+**Prerequisites:** Ubuntu / Linux with ROS 2 installed, and Rust `>= 1.91` (`cargo` / `rustup`).
 
 Install from a local checkout into `~/.cargo/bin/tmn`:
 
@@ -12,9 +15,11 @@ Install from a local checkout into `~/.cargo/bin/tmn`:
 cargo install --path . --locked
 ```
 
-Ensure `~/.cargo/bin` is on your `PATH`. Because `tmn` is a standalone binary with zero ROS dependencies, a single install in `~/.cargo/bin` works across ROS 2 Humble, Jazzy, Kilted, and Lyrical, as well as inside Pixi shells or Distrobox containers that share `$HOME`.
+Ensure `~/.cargo/bin` is on your `PATH`. Because `tmn` is a standalone binary with zero ROS build or runtime dependencies, a single install works across any sourced ROS 2 distribution (Humble, Jazzy, Kilted, Lyrical).
 
 ## Usage
+
+Source your ROS 2 workspace as usual, then prefix your `ros2 launch` command with `tmn`:
 
 ```sh
 tmn [OPTIONS] [--] <COMMAND> [ARGS]...
@@ -22,7 +27,7 @@ tmn [OPTIONS] [--] <COMMAND> [ARGS]...
 
 ### Examples
 
-Wrap a `ros2 launch` command (inside a sourced ROS shell, Pixi env, or Distrobox):
+Wrap a `ros2 launch` command:
 ```sh
 tmn ros2 launch demo_nodes_cpp talker_listener_launch.py
 ```
@@ -32,9 +37,9 @@ Pass trailing `--ros-args` directly (no `--` needed unless `<COMMAND>` starts wi
 tmn ros2 launch demo_nodes_cpp talker_listener_launch.py --ros-args -r __ns:=/bot1
 ```
 
-Wrap `distrobox enter` from the host:
+Run a multi-process shell command:
 ```sh
-tmn distrobox enter ubuntu26 -- bash -lc "source /opt/ros/lyrical/setup.bash && ros2 launch demo_nodes_cpp talker_listener_launch.py"
+tmn sh -c "echo 'hello'; sleep 1; echo 'world'"
 ```
 
 Headless mode (run through PTY & parser without TUI; print logs to `stdout` and source summary to `stderr`):
@@ -57,17 +62,15 @@ Unless `--no-env-override` is passed, `tmn` sets the following variables in the 
 - `RCUTILS_COLORIZED_OUTPUT=1` — preserves ANSI severity colors.
 - `RCUTILS_LOGGING_BUFFERED_STREAM=0` & `PYTHONUNBUFFERED=1` — flushes C++ `rcutils` and Python `print()` lines immediately.
 
-*(Note: `docker exec` strips host env vars unless `-e` is passed; prefer running `tmn` inside the container or passing `-e OVERRIDE_LAUNCH_PROCESS_OUTPUT=both`.)*
-
 ## Scrolling, Wrapping & Copying Logs
 
 Because `tmn` runs in the terminal's alternate screen with a two-pane split by default:
 1. **Press `z` (Zoom)** to hide the left source panel full-width. While zoomed:
    - Drag-selecting text in your terminal copies **only log lines** without the left sidebar.
-   - `j` / `k`, `↑` / `↓`, and terminal mouse-wheel (alternate-scroll) scroll the log viewport directly.
+   - `j` / `k`, `↑` / `↓`, and terminal mouse-wheel scroll the log viewport directly.
 2. **Press `w` (Wrap)** to soft-wrap long lines to the viewport width so nothing at the right edge is truncated on screen or when copying.
 3. **While the sidebar is open**, use `Ctrl-U` / `Ctrl-D` (half-page), `PgUp` / `PgDn` (full-page), or `g` / `G` (top / resume live tail) to scroll logs.
-4. **Press `?` (Help)** anytime to view all shortcuts in an overlay popup (hold-to-peek on terminals supporting the Kitty keyboard protocol such as Kitty, WezTerm, Ghostty, and Alacritty; press `?` or `Esc` to close on standard VTE/tmux/web terminals).
+4. **Press `?` (Help)** anytime to toggle the shortcuts overlay popup (`?` or `Esc` closes it).
 
 ## Keybindings
 
@@ -84,7 +87,7 @@ Because `tmn` runs in the terminal's alternate screen with a two-pane split by d
 | `g` / `G` | Jump to oldest buffered line / jump to latest line & resume tail-follow |
 | `1` / `2` / `3` / `4` / `5` | Minimum severity: `1`=ALL, `2`=DEBUG+, `3`=INFO+, `4`=WARN+, `5`=ERROR+ |
 | `/` , `Esc` | Regex search (case-insensitive unless uppercase is used) / clear active regex |
-| `?` | Show shortcuts popup (hold `?` on key-release terminals, or toggle with `?` / `Esc`) |
+| `?` | Toggle shortcuts popup (`?` or `Esc` closes) |
 | `Ctrl-C` | Send `SIGINT` to child process group and hold TUI open in post-mortem mode |
 | `q` | Quit `tmn` (cleanly stops child first via `SIGINT` -> `SIGTERM` -> `SIGKILL` escalation) |
 

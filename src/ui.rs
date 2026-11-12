@@ -1,13 +1,9 @@
-use crate::app::{App, ChildState, ExitOutcome, HelpMode};
+use crate::app::{App, ChildState, ExitOutcome};
 use crate::store::{LogEntry, LogStore, ProcessState};
 use ansi_to_tui::IntoText;
 use crossterm::{
-    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
-    terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-        supports_keyboard_enhancement,
-    },
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     Frame, Terminal,
@@ -24,7 +20,6 @@ static PANIC_HOOK_INIT: Once = Once::new();
 
 pub struct TerminalGuard {
     term: Terminal<CrosstermBackend<Stdout>>,
-    keyboard_enhanced: bool,
 }
 
 impl TerminalGuard {
@@ -33,24 +28,9 @@ impl TerminalGuard {
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
 
-        let keyboard_enhanced = if supports_keyboard_enhancement().unwrap_or(false) {
-            execute!(
-                stdout,
-                PushKeyboardEnhancementFlags(
-                    KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                        | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-                )
-            )
-            .is_ok()
-        } else {
-            false
-        };
-
         PANIC_HOOK_INIT.call_once(|| {
             let default_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
                 let _ = disable_raw_mode();
                 let _ = execute!(io::stdout(), LeaveAlternateScreen);
                 default_hook(info);
@@ -59,15 +39,7 @@ impl TerminalGuard {
 
         let backend = CrosstermBackend::new(stdout);
         let term = Terminal::new(backend)?;
-        Ok(Self {
-            term,
-            keyboard_enhanced,
-        })
-    }
-
-    #[must_use]
-    pub fn supports_key_release(&self) -> bool {
-        self.keyboard_enhanced
+        Ok(Self { term })
     }
 
     pub fn terminal_mut(&mut self) -> &mut Terminal<CrosstermBackend<Stdout>> {
@@ -77,9 +49,6 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        if self.keyboard_enhanced {
-            let _ = execute!(self.term.backend_mut(), PopKeyboardEnhancementFlags);
-        }
         let _ = disable_raw_mode();
         let _ = execute!(self.term.backend_mut(), LeaveAlternateScreen);
     }
@@ -184,20 +153,13 @@ fn help_row(keys: &'static str, desc: &'static str) -> Line<'static> {
     ])
 }
 
-fn render_help_popup(frame: &mut Frame<'_>, mode: HelpMode) {
-    let close_hint = match mode {
-        HelpMode::HeldOpen => "Release ? to close",
-        HelpMode::ToggledOpen => "Press ? or Esc to close",
-        HelpMode::Closed => return,
-    };
-
+fn render_help_popup(frame: &mut Frame<'_>) {
     let popup_area = centered_rect(68, 20, frame.area());
     frame.render_widget(Clear, popup_area);
 
-    let title = format!(" tmn Shortcuts ({close_hint}) ");
     let block = Block::bordered()
         .title(Span::styled(
-            title,
+            " tmn Shortcuts (Press ? or Esc to close) ",
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().bg(Color::Black).fg(Color::White));
@@ -441,8 +403,8 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     };
     frame.render_widget(Paragraph::new(bottom_str), bottom_area);
 
-    if app.help_mode() != HelpMode::Closed {
-        render_help_popup(frame, app.help_mode());
+    if app.show_help() {
+        render_help_popup(frame);
     }
 }
 
@@ -666,39 +628,25 @@ mod tests {
     }
 
     #[test]
-    fn test_help_popup_renders_held_and_toggled_footers() {
+    fn test_help_popup_renders_and_closes_on_toggle() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
 
-        // 1. Key-release supported -> HeldOpen footer & closes on '/' release
         let mut app = App::new("cmd".into(), 100);
-        app.set_supports_key_release(true);
         app.on_key(key(KeyCode::Char('?')));
 
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let screen = buffer_text(&terminal);
         assert!(screen.contains("Ctrl-U / Ctrl-D"), "screen:\n{screen}");
         assert!(screen.contains("PgUp / PgDn"), "screen:\n{screen}");
-        assert!(screen.contains("Release ? to close"), "screen:\n{screen}");
+        assert!(
+            screen.contains("Press ? or Esc to close"),
+            "screen:\n{screen}"
+        );
 
-        app.on_key(KeyEvent {
-            code: KeyCode::Char('/'),
-            modifiers: KeyModifiers::empty(),
-            kind: KeyEventKind::Release,
-            state: KeyEventState::empty(),
-        });
+        app.on_key(key(KeyCode::Char('?')));
         terminal.draw(|f| render(f, &mut app)).unwrap();
         let closed_screen = buffer_text(&terminal);
-        assert!(!closed_screen.contains("Release ? to close"));
-
-        // 2. Fallback terminal -> ToggledOpen footer
-        let mut app_fallback = App::new("cmd".into(), 100);
-        app_fallback.on_key(key(KeyCode::Char('?')));
-        terminal.draw(|f| render(f, &mut app_fallback)).unwrap();
-        let fallback_screen = buffer_text(&terminal);
-        assert!(
-            fallback_screen.contains("Press ? or Esc to close"),
-            "screen:\n{fallback_screen}"
-        );
+        assert!(!closed_screen.contains("Press ? or Esc to close"));
     }
 }

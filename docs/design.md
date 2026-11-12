@@ -5,7 +5,7 @@
 `tmn` (*too-many-nodes*) is a minimal, single-binary Linux terminal UI wrapper for `ros2 launch` (and arbitrary multi-process commands). It runs the target command inside a pseudo-terminal, captures the full output firehose in memory, and provides a `k9s`-inspired TUI to filter logs interactively by OS process, inner ROS logger (including composable nodes inside `component_container*`), severity, and regular expression.
 
 ### Design Stance
-- **Zero intrusion into ROS:** No linkage against `rcl`, `rmw`, `rclpy`, or `ros2cli`; no `/rosout` subscriptions; no `enable_logger_service` requirement. Works identically across ROS 2 Humble, Jazzy, Kilted, and Lyrical, as well as across host shells, Distrobox, Docker, and `pixi`.
+- **Zero intrusion into ROS:** No linkage against `rcl`, `rmw`, `rclpy`, or `ros2cli`; no `/rosout` subscriptions; no `enable_logger_service` requirement. Works identically across ROS 2 Humble, Jazzy, Kilted, and Lyrical on standard Ubuntu/Linux setups.
 - **Captures the real terminal stream:** Unlike `/rosout` tools, `tmn` captures Python `print()` statements, uncaught tracebacks, C/C++ `stdout`/`stderr`, sanitizer/segfault backtraces, Gazebo/RViz output, and `launch` process-lifecycle events.
 - **Minimal v1 scope (YAGNI):**
   - **In scope:** Single-terminal PTY wrapper, process + inner-logger discovery and multi-select, minimum-severity filter, live regex filter, auto-follow scrollback with pause-on-scroll, sidebar zoom, and post-mortem hold on `Ctrl-C` / child exit with orphan-free shutdown.
@@ -117,9 +117,7 @@ An entry passes the active filter iff **all three** hold:
    - **Left source pane (~28 cols, collapsible via `z`):** `All` row at top, followed by processes (and indented child loggers for multi-logger processes). Each row shows selection marker (`*` when selected, space otherwise), status dot (`●` running, `✓` exited 0, `✗` crashed/non-zero, `·` passive), name, and compact `!W`/`×E` counters when `> 0`.
    - **Right log viewport (`1fr`):** Renders only the visible slice of matching entries, converting raw ANSI SGR escape sequences lazily via `ansi-to-tui`. When showing multiple processes (`All` or multi-select across `>= 2` processes), prepends a dim `[proc-N]` gutter tag; when soloing a single process or logger, omits the redundant `[proc-N]` prefix to maximize horizontal space. When soft line wrapping (`w`) is enabled, visible lines are wrapped by terminal display column width while preserving ANSI SGR styles, walking backward from the newest matching entry in `follow_tail` mode so wrapped multi-row entries never push the latest output below the viewport.
 3. **Bottom bar (1 line):** Concise 80-column key hint bar in normal mode (`Enter/Spc: Filter | z: Zoom | w: Wrap | 1-5: Sev | /: Find | ?: Help | q: Quit`); live `/` search input prompt in search mode.
-4. **Shortcuts popup overlay (`?`):** Centered modal overlay documenting all navigation, view/copy, scrolling, filtering, and lifecycle shortcuts. `TerminalGuard` queries `crossterm::terminal::supports_keyboard_enhancement()` at startup and enables Kitty keyboard protocol event-type reporting when supported:
-   - **Key-release supported (`HeldOpen`):** Holding `?` (`?` or `Shift + /`) opens the popup and releasing `?` or `/` closes it immediately (`Esc` also closes it).
-   - **Fallback terminals (`ToggledOpen`):** Pressing `?` toggles the popup open, and pressing `?` or `Esc` closes it.
+4. **Shortcuts popup overlay (`?`):** Centered modal overlay documenting all navigation, view/copy, scrolling, filtering, and lifecycle shortcuts. Pressing `?` toggles the popup open, and pressing `?` or `Esc` closes it.
 
 ### Keybindings
 | Key | Action |
@@ -134,7 +132,7 @@ An entry passes the active filter iff **all three** hold:
 | `g` / `G` | Jump to oldest buffered line (`g`, pauses follow) / jump to latest line & re-engage tail-follow (`G`). |
 | `z` | Toggle sidebar visibility (full-width log zoom for mouse wheel scroll & clean terminal text selection). |
 | `w` | Toggle soft line wrapping in the log viewport. |
-| `?` | Show full shortcuts popup (hold-to-peek when terminal supports key-release; toggle with `?`/`Esc` otherwise). |
+| `?` | Toggle shortcuts popup (`?` or `Esc` closes). |
 | `Ctrl-C` | Stop child process group (`SIGINT`) and hold TUI in post-mortem mode (escalates if pressed repeatedly while stopping). |
 | `q` | Quit `tmn` (cleanly stops child first if still running). |
 
