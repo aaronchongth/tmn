@@ -109,12 +109,10 @@ fn run_interactive(mut app: App, config: PtyConfig) -> i32 {
                 }
                 tmn::app::ChildState::Quitting {
                     stage: tmn::app::QuitStage::TermSent,
-                } => {
-                    if last_quit_escalation.elapsed() >= Duration::from_secs(2) {
-                        let action = app.on_quit_timeout();
-                        if handle_action(&session, action, &mut last_quit_escalation) {
-                            break;
-                        }
+                } if last_quit_escalation.elapsed() >= Duration::from_secs(2) => {
+                    let action = app.on_quit_timeout();
+                    if handle_action(&session, action, &mut last_quit_escalation) {
+                        break;
                     }
                 }
                 _ => {}

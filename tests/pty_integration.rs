@@ -77,7 +77,11 @@ fn ctrl_c_forwards_sigint_and_holds_post_mortem() {
         command: vec![
             "sh".to_string(),
             "-c".to_string(),
-            "trap \"echo caught_int; exit 0\" INT; echo ready; sleep 30".to_string(),
+            // Poll with short sleeps rather than one long `sleep`: POSIX shells defer
+            // traps until the foreground command finishes, so if SIGINT lands just
+            // before the shell forks a long `sleep` the trap would not run for ages.
+            "trap \"echo caught_int; exit 0\" INT; echo ready; while :; do sleep 0.1; done"
+                .to_string(),
         ],
         inject_default_env: true,
         cols: 80,
