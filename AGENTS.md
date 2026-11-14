@@ -6,9 +6,18 @@
 ## Verification & Commands
 Before submitting or completing any task, run:
 ```bash
-cargo fmt --check && cargo test && cargo clippy --all-targets
+cargo fmt --check && cargo test && cargo clippy --all-targets -- -D warnings
 ```
-All tests must pass and clippy must report zero warnings.
+All tests must pass and clippy must report zero warnings. This is exactly what CI
+(`.github/workflows/ci.yml`) enforces on every PR.
+
+## Releasing (manual)
+1. Bump `version` in `Cargo.toml` (commit the updated `Cargo.lock`) and merge to `main`.
+2. Wait for CI to pass on that commit. Its `package` job uploads an artifact named
+   `tmn-x86_64-unknown-linux-gnu` (Actions run page -> Artifacts). Download and unzip it to get
+   `tmn-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256`.
+3. Tag the commit (`git tag vX.Y.Z && git push origin vX.Y.Z`) and create a GitHub release for
+   the tag, attaching both files. The README install instructions depend on those exact names.
 
 ## Engineering Guidelines & Rules
 1. **Zero unwrap in production code:** `Cargo.toml` enforces `unwrap_used = "deny"`. Unit and integration tests may use `unwrap()` and `expect()` as configured in `clippy.toml`.

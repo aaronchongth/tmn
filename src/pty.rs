@@ -1,4 +1,5 @@
 use crate::app::{ExitOutcome, SignalReq};
+use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 use nix::pty::{Winsize, openpty};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::{Pid, read};
@@ -102,6 +103,16 @@ impl PtySession {
             openpty(Some(&winsize), None).map_err(|e| format!("Failed to openpty: {e}"))?;
         let master = pty_res.master;
         let slave = pty_res.slave;
+
+        // `openpty` does not set CLOEXEC. Without it, any other child spawned
+        // concurrently from this process inherits our slave fd and keeps the PTY
+        // open after our own child exits, so the reader never sees EIO and
+        // trailing output is delayed. The child's stdio is unaffected: `dup2`
+        // onto fds 0/1/2 clears the flag.
+        for fd in [&master, &slave] {
+            fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))
+                .map_err(|e| format!("Failed to set CLOEXEC on PTY fd: {e}"))?;
+        }
 
         let mut cmd = Command::new(&config.command[0]);
         if config.command.len() > 1 {
