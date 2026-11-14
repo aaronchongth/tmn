@@ -22,17 +22,6 @@ tmn --version
 
 Ensure `~/.local/bin` is on your `PATH`. Because `tmn` is a standalone binary with zero ROS build or runtime dependencies, a single install works across any sourced ROS 2 distribution (Humble, Jazzy, Kilted, Lyrical).
 
-To install a specific version, or to verify the download against its published checksum, fetch the assets from the [releases page](https://github.com/aaronchongth/tmn/releases):
-
-```sh
-VERSION=v0.1.0
-TARGET=x86_64-unknown-linux-gnu
-curl -fsSLO "https://github.com/aaronchongth/tmn/releases/download/${VERSION}/tmn-${TARGET}.tar.gz"
-curl -fsSLO "https://github.com/aaronchongth/tmn/releases/download/${VERSION}/tmn-${TARGET}.tar.gz.sha256"
-sha256sum -c "tmn-${TARGET}.tar.gz.sha256"
-tar -xzf "tmn-${TARGET}.tar.gz" -C ~/.local/bin tmn
-```
-
 ### Building from source
 
 Only needed for development or unsupported platforms. Requires Rust `>= 1.91` (`cargo` / `rustup`). From a local checkout, install into `~/.cargo/bin/tmn`:
