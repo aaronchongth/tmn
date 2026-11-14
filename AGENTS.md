@@ -12,12 +12,23 @@ All tests must pass and clippy must report zero warnings. This is exactly what C
 (`.github/workflows/ci.yml`) enforces on every PR.
 
 ## Releasing (manual)
-1. Bump `version` in `Cargo.toml` (commit the updated `Cargo.lock`) and merge to `main`.
-2. Wait for CI to pass on that commit. Its `package` job uploads an artifact named
-   `tmn-x86_64-unknown-linux-gnu` (Actions run page -> Artifacts). Download and unzip it to get
-   `tmn-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256`.
-3. Tag the commit (`git tag vX.Y.Z && git push origin vX.Y.Z`) and create a GitHub release for
-   the tag, attaching both files. The README install instructions depend on those exact names.
+Build on an Ubuntu 24.04+ host: the binary links against the host glibc, so the README's
+"glibc 2.39+ / Ubuntu 24.04 or newer" requirement follows from where it is built. Run from the repo root.
+1. Bump `version` in `Cargo.toml`, commit the updated `Cargo.lock`, and merge to `main` once CI passes.
+2. Build and package (file names must stay exactly as-is; the README install instructions use them):
+   ```bash
+   git status --short            # should be clean
+   cargo build --release --locked
+   mkdir -p dist
+   tar -czf dist/tmn-x86_64-unknown-linux-gnu.tar.gz -C target/release tmn -C ../.. LICENSE README.md
+   (cd dist && sha256sum tmn-x86_64-unknown-linux-gnu.tar.gz > tmn-x86_64-unknown-linux-gnu.tar.gz.sha256)
+   (cd dist && sha256sum -c tmn-x86_64-unknown-linux-gnu.tar.gz.sha256)
+   ```
+3. Tag, push, then create the GitHub release from the tag attaching both files in `dist/`
+   (web UI, or `gh release create vX.Y.Z dist/* --generate-notes`):
+   ```bash
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   ```
 
 ## Engineering Guidelines & Rules
 1. **Zero unwrap in production code:** `Cargo.toml` enforces `unwrap_used = "deny"`. Unit and integration tests may use `unwrap()` and `expect()` as configured in `clippy.toml`.

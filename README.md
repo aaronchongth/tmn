@@ -9,7 +9,7 @@ A minimal, single-binary Linux terminal UI wrapper for `ros2 launch` (and arbitr
 
 ## Installation
 
-**Prerequisites:** Linux `x86_64` (glibc 2.35+, e.g. Ubuntu 22.04 or newer). No Rust toolchain needed.
+**Prerequisites:** Linux `x86_64` (glibc 2.39+, i.e. Ubuntu 24.04 or newer). No Rust toolchain needed.
 
 Download the latest release binary and install it to `~/.local/bin`:
 
