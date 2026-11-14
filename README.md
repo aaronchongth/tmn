@@ -1,5 +1,7 @@
 # tmn (too-many-nodes)
 
+![](../media/tmn.gif)
+
 > [!WARNING]
 > **Active Development:** `tmn` is under active early development. CLI flags, keybindings, and behavior may change.
 
